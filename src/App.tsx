@@ -1451,28 +1451,37 @@ export default function App() {
         const hasEn = !!ch?.audio_en
         const curHasAudio = hasPl || hasEn
 
-        // In MP3 mode: only show bar if current chapter has audio
-        if (!curHasAudio && audioMode !== 'speech') return null
+        // Target chapter for play: current if has audio, else first chapter with audio
+        const playChIdx: number | null = (() => {
+          if (curHasAudio && chIdx !== null) return chIdx
+          for (let i = 0; i < book.chapters.length; i++) {
+            if (book.chapters[i].audio_pl || book.chapters[i].audio_en) return i
+          }
+          return null
+        })()
 
-        const playChIdx = chIdx
-        const playHasPl = hasPl
-        const playHasEn = hasEn
+        // In MP3 mode: hide bar only if book has no audio at all
+        if (playChIdx === null && audioMode !== 'speech') return null
+
+        const playCh    = playChIdx !== null ? book.chapters[playChIdx] : null
+        const playHasPl = !!playCh?.audio_pl
+        const playHasEn = !!playCh?.audio_en
 
         // Progress tracks the chapter that is currently loaded in the audio element
-        const isThisCh     = audioCurCh === chIdx && chIdx !== null
+        const isThisCh     = audioCurCh === playChIdx && playChIdx !== null
         const isPlayingMp3 = audioMode === 'mp3' && audioPlaying && isThisCh
         const isPlayingSp  = audioMode === 'speech' && speechPlaying
         const isPlaying    = isPlayingMp3 || isPlayingSp
         const audioProgress = (isThisCh && audioDuration > 0)
           ? (audioCurrent / audioDuration) * 100 : 0
-        const hasTiming = !!(audioLang === 'pl' ? ch?.timing_pl?.length : ch?.timing_en?.length)
+        const hasTiming = !!(audioLang === 'pl' ? playCh?.timing_pl?.length : playCh?.timing_en?.length)
 
-        // Play button handler — only current chapter, no navigation
+        // Play button handler — no navigation, starts target chapter audio
         const handlePlay = () => {
           if (audioMode === 'mp3') {
-            if (chIdx !== null) toggleAudio(chIdx, audioLang)
+            if (playChIdx !== null) toggleAudio(playChIdx, audioLang)
           } else {
-            toggleSpeech(chIdx ?? 0, audioLang)
+            toggleSpeech(chIdx ?? playChIdx ?? 0, audioLang)
           }
         }
 
