@@ -368,8 +368,7 @@ def build_index(catalog: list[dict]) -> None:
         links_html = ""
         if "html" in files:
             links_html += (
-                f'<a class="card-btn card-btn--primary" href="{escape(files["html"])}" target="_self"'
-                f' onclick="event.preventDefault();window.location.href=this.href">'
+                f'<a class="card-btn card-btn--primary" href="{escape(files["html"])}">'
                 f'<span data-en="Read" data-pl="Czytaj">Read</span></a>'
             )
         if epub_url:

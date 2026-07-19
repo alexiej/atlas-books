@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build && python3 publish.py --build",
-    "build-viewer": "vite build"
+    "build": "vite build && python3 -c \"import shutil, pathlib; pathlib.Path('public').mkdir(exist_ok=True); shutil.copy('dist/index.html', 'public/book-template.html'); print('book-template.html updated')\"",
+    "publish": "python3 publish.py"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
