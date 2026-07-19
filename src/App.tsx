@@ -1424,7 +1424,7 @@ export default function App() {
         onPause={() => setAudioPlaying(false)}
         onEnded={() => {
           const el = audioRef.current
-          // ── Part advance: play next split-part of the same chapter ──────────
+          // Part advance: next split-part of same chapter
           const nextPartIdx = audioPartIdxRef.current + 1
           if (el && nextPartIdx < audioPartsRef.current.length) {
             audioPartIdxRef.current = nextPartIdx
@@ -1433,8 +1433,31 @@ export default function App() {
             el.play().catch(() => {})
             return
           }
-          // End of chapter — stop
+          // Chapter advance: next chapter with audio — NO page navigation
           audioPartIdxRef.current = 0
+          const curCh = audioCurChRef.current
+          if (curCh !== null && el) {
+            let nextCh: number | null = null
+            for (let i = curCh + 1; i < book.chapters.length; i++) {
+              if (book.chapters[i].audio_pl || book.chapters[i].audio_en) { nextCh = i; break }
+            }
+            if (nextCh !== null) {
+              const ch     = book.chapters[nextCh]
+              const rawSrc = audioLang === 'pl'
+                ? (ch.audio_pl || ch.audio_en)
+                : (ch.audio_en || ch.audio_pl)
+              const parts  = _audioParts(rawSrc)
+              if (parts.length) {
+                audioPartsRef.current = parts
+                el.src = parts[0]
+                el.load()
+                el.play().catch(() => {})
+                setAudioCurCh(nextCh)
+                return
+              }
+            }
+          }
+          // End of playlist
           setAudioPlaying(false)
           setAudioCurrent(0)
         }}
@@ -1445,43 +1468,49 @@ export default function App() {
         // Show the bar whenever audio is enabled (Web Speech works for any book)
         if (!audioEnabled) return null
 
-        const chIdx = curSpec?.kind === 'content' ? curSpec.chapterIdx : null
-        const ch    = chIdx !== null ? book.chapters[chIdx] : null
-        const hasPl = !!ch?.audio_pl
-        const hasEn = !!ch?.audio_en
-        const curHasAudio = hasPl || hasEn
-
-        // Target chapter for play: current if has audio, else first chapter with audio
-        const playChIdx: number | null = (() => {
-          if (curHasAudio && chIdx !== null) return chIdx
+        // First chapter with audio in the book
+        const firstAudioChIdx: number | null = (() => {
           for (let i = 0; i < book.chapters.length; i++) {
             if (book.chapters[i].audio_pl || book.chapters[i].audio_en) return i
           }
           return null
         })()
 
-        // In MP3 mode: hide bar only if book has no audio at all
-        if (playChIdx === null && audioMode !== 'speech') return null
+        // Hide bar if book has no audio (MP3 mode) and speech isn't available
+        if (firstAudioChIdx === null && audioMode !== 'speech') return null
 
-        const playCh    = playChIdx !== null ? book.chapters[playChIdx] : null
-        const playHasPl = !!playCh?.audio_pl
-        const playHasEn = !!playCh?.audio_en
+        // Active chapter: what's loaded in the audio element, or first chapter (before first play)
+        // — independent of which page the reader is on
+        const activeChIdx   = audioCurCh ?? firstAudioChIdx
+        const activeCh      = activeChIdx !== null ? book.chapters[activeChIdx] : null
+        const playHasPl     = !!activeCh?.audio_pl
+        const playHasEn     = !!activeCh?.audio_en
 
-        // Progress tracks the chapter that is currently loaded in the audio element
-        const isThisCh     = audioCurCh === playChIdx && playChIdx !== null
-        const isPlayingMp3 = audioMode === 'mp3' && audioPlaying && isThisCh
-        const isPlayingSp  = audioMode === 'speech' && speechPlaying
-        const isPlaying    = isPlayingMp3 || isPlayingSp
-        const audioProgress = (isThisCh && audioDuration > 0)
+        const isLoaded      = audioCurCh !== null
+        const isPlayingMp3  = audioMode === 'mp3' && audioPlaying && isLoaded
+        const isPlayingSp   = audioMode === 'speech' && speechPlaying
+        const isPlaying     = isPlayingMp3 || isPlayingSp
+        const audioProgress = (isLoaded && audioDuration > 0)
           ? (audioCurrent / audioDuration) * 100 : 0
-        const hasTiming = !!(audioLang === 'pl' ? playCh?.timing_pl?.length : playCh?.timing_en?.length)
+        const hasTiming     = !!(audioLang === 'pl' ? activeCh?.timing_pl?.length : activeCh?.timing_en?.length)
 
-        // Play button handler — no navigation, starts target chapter audio
+        // Speech mode: use current page's chapter
+        const pageChIdx = curSpec?.kind === 'content' ? curSpec.chapterIdx : null
+
+        // Play handler — global playlist, no navigation
         const handlePlay = () => {
           if (audioMode === 'mp3') {
-            if (playChIdx !== null) toggleAudio(playChIdx, audioLang)
+            // On first play check saved position to resume from correct chapter
+            let startCh = activeChIdx
+            if (audioCurCh === null) {
+              try {
+                const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
+                if (saved?.ch != null) startCh = saved.ch as number
+              } catch {}
+            }
+            if (startCh !== null) toggleAudio(startCh, audioLang)
           } else {
-            toggleSpeech(chIdx ?? playChIdx ?? 0, audioLang)
+            toggleSpeech(pageChIdx ?? activeChIdx ?? 0, audioLang)
           }
         }
 
@@ -1582,7 +1611,7 @@ export default function App() {
             {/* Time — MP3 only */}
             {audioMode === 'mp3' && (
               <span className="sf-audio-time">
-                {isThisCh
+                {isLoaded
                   ? `${formatTime(audioCurrent)} / ${formatTime(audioDuration)}`
                   : `0:00 / 0:00`}
               </span>
