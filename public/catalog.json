@@ -163,5 +163,92 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/darwin-o-powstawaniu-gatunkow.pdf"
     },
     "published": "2026-07-19"
+  },
+  {
+    "id": "homer-odyseja",
+    "title": "Odyseja",
+    "author": "Homer",
+    "year": "do 476",
+    "description": "",
+    "cover_file": "homer-odyseja-cover.jpg",
+    "files": {
+      "html": "homer-odyseja.html",
+      "epub": "homer-odyseja.epub",
+      "pdf": "homer-odyseja.pdf"
+    },
+    "audio": [
+      "homer-odyseja_001_piesn-pierwsza.mp3",
+      "homer-odyseja_002_piesn-druga.mp3",
+      "homer-odyseja_003_piesn-trzecia.mp3",
+      "homer-odyseja_004_piesn-czwarta-part000.mp3",
+      "homer-odyseja_004_piesn-czwarta-part001.mp3",
+      "homer-odyseja_004_piesn-czwarta.mp3",
+      "homer-odyseja_005_piesn-piata.mp3",
+      "homer-odyseja_006_piesn-szosta.mp3",
+      "homer-odyseja_007_piesn-siodma.mp3",
+      "homer-odyseja_008_piesn-osma-part000.mp3",
+      "homer-odyseja_008_piesn-osma-part001.mp3",
+      "homer-odyseja_008_piesn-osma.mp3",
+      "homer-odyseja_009_piesn-dziewiata-part000.mp3",
+      "homer-odyseja_009_piesn-dziewiata-part001.mp3",
+      "homer-odyseja_009_piesn-dziewiata.mp3",
+      "homer-odyseja_010_piesn-dziesiata-part000.mp3",
+      "homer-odyseja_010_piesn-dziesiata-part001.mp3",
+      "homer-odyseja_010_piesn-dziesiata.mp3",
+      "homer-odyseja_011_piesn-jedenasta-part000.mp3",
+      "homer-odyseja_011_piesn-jedenasta-part001.mp3",
+      "homer-odyseja_011_piesn-jedenasta.mp3",
+      "homer-odyseja_012_piesn-dwunasta.mp3",
+      "homer-odyseja_013_piesn-trzynasta.mp3",
+      "homer-odyseja_014_piesn-czternasta.mp3",
+      "homer-odyseja_015_piesn-pietnasta-part000.mp3",
+      "homer-odyseja_015_piesn-pietnasta-part001.mp3",
+      "homer-odyseja_015_piesn-pietnasta.mp3",
+      "homer-odyseja_016_piesn-szesnasta.mp3",
+      "homer-odyseja_017_piesn-siedemnasta-part000.mp3",
+      "homer-odyseja_017_piesn-siedemnasta-part001.mp3",
+      "homer-odyseja_017_piesn-siedemnasta.mp3",
+      "homer-odyseja_018_piesn-osiemnasta.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta-part000.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta-part001.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta.mp3",
+      "homer-odyseja_020_piesn-dwudziesta.mp3",
+      "homer-odyseja_021_piesn-dwudziesta-pierwsza.mp3",
+      "homer-odyseja_022_piesn-dwudziesta-druga.mp3",
+      "homer-odyseja_023_piesn-dwudziesta-trzecia.mp3",
+      "homer-odyseja_024_piesn-dwudziesta-czwarta.mp3"
+    ],
+    "audio_source": "wolnelektury",
+    "attribution": {
+      "statement": "Książka pochodzi z serwisu Wolne Lektury",
+      "source": "Wolne Lektury",
+      "source_url": "https://wolnelektury.pl",
+      "book_url": "https://wolnelektury.pl/katalog/lektura/homer-odyseja/",
+      "license": "Wolna licencja",
+      "epub_url": "https://wolnelektury.pl/media/book/epub/homer-odyseja.epub",
+      "pdf_url": "https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf",
+      "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/homer-odyseja_mp3.zip"
+    },
+    "published": "2026-07-19"
+  },
+  {
+    "id": "lewis-carroll-alice",
+    "title": "Alice's Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "year": "1865",
+    "description": "Klasyczna powieść fantastyczna opowiadająca o przygodach dziewczynki o imieniu Alicja, która po podążeniu za Białym Królikiem trafia do niezwykłego świata pełnego antropomorficznych stworzeń i absurdów językowych.",
+    "cover_file": "lewis-carroll-alice-cover.jpg",
+    "files": {
+      "html": "lewis-carroll-alice.html",
+      "epub": "lewis-carroll-alice.epub",
+      "pdf": "lewis-carroll-alice.pdf"
+    },
+    "audio": [],
+    "audio_source": "",
+    "attribution": {
+      "epub_url": "lewis-carroll-alice.epub",
+      "pdf_url": "lewis-carroll-alice.pdf"
+    },
+    "published": "2026-07-19"
   }
 ]
