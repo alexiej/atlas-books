@@ -1,0 +1,35 @@
+{
+  "title": "Star Federation — Viewer",
+  "subtitle": "Book Template",
+  "author": "Arkadia Publishing",
+  "year": "2026",
+  "description": "Placeholder dla trybu deweloperskiego. Uruchom generate-book.py aby wygenerować pełną wersję z treścią.",
+  "cover": "",
+  "lang": "pl",
+  "chapters": [
+    {
+      "id": "preview",
+      "number": 1,
+      "title": "Szablon Przeglądarki",
+      "subtitle": "Tryb deweloperski",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "To jest szablon przeglądarki książek. Uruchom generate-book.py aby wygenerować pełną wersję z treścią."
+        },
+        {
+          "type": "callout",
+          "label": "Jak użyć",
+          "text": "python tools/generate-book.py --input source/books/<nazwa>/ --epub --pdf --publish"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "paragraph",
+          "text": "W trybie deweloperskim (npm run dev) przeglądarka pokazuje ten placeholder. W produkcji skrypt generate-book.py wstrzykuje prawdziwe dane książki przez window.__BOOK_DATA__."
+        }
+      ]
+    }
+  ]
+}
