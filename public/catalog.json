@@ -1,32 +1,5 @@
 [
   {
-    "id": "arystoteles-polityka",
-    "title": "Polityka",
-    "author": "Arystoteles",
-    "year": "IV w. p.n.e.",
-    "description": "Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.",
-    "cover_file": "arystoteles-polityka-cover.jpg",
-    "files": {
-      "html": "arystoteles-polityka.html",
-      "epub": "arystoteles-polityka.epub",
-      "pdf": "arystoteles-polityka.pdf"
-    },
-    "audio": [
-      "arystoteles-polityka-ch1-part000.mp3",
-      "arystoteles-polityka-ch1-part001.mp3",
-      "arystoteles-polityka-ch1-part002.mp3",
-      "arystoteles-polityka-ch1-part003.mp3",
-      "arystoteles-polityka-ch1-part004.mp3",
-      "arystoteles-polityka-ch1-part005.mp3"
-    ],
-    "audio_source": "ElevenLabs",
-    "attribution": {
-      "epub_url": "arystoteles-polityka.epub",
-      "pdf_url": "arystoteles-polityka.pdf"
-    },
-    "published": "2026-07-19"
-  },
-  {
     "id": "20-000-mil-podmorskiej-zeglugi",
     "title": "20 000 mil podmorskiej żeglugi",
     "author": "Jules Gabriel Verne",
@@ -97,6 +70,33 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/20-000-mil-podmorskiej-zeglugi.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/20-000-mil-podmorskiej-zeglugi.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/20-000-mil-podmorskiej-zeglugi_mp3.zip"
+    },
+    "published": "2026-07-19"
+  },
+  {
+    "id": "arystoteles-polityka",
+    "title": "Polityka",
+    "author": "Arystoteles",
+    "year": "IV w. p.n.e.",
+    "description": "Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.",
+    "cover_file": "arystoteles-polityka-cover.jpg",
+    "files": {
+      "html": "arystoteles-polityka.html",
+      "epub": "arystoteles-polityka.epub",
+      "pdf": "arystoteles-polityka.pdf"
+    },
+    "audio": [
+      "arystoteles-polityka-ch1-part000.mp3",
+      "arystoteles-polityka-ch1-part001.mp3",
+      "arystoteles-polityka-ch1-part002.mp3",
+      "arystoteles-polityka-ch1-part003.mp3",
+      "arystoteles-polityka-ch1-part004.mp3",
+      "arystoteles-polityka-ch1-part005.mp3"
+    ],
+    "audio_source": "ElevenLabs",
+    "attribution": {
+      "epub_url": "arystoteles-polityka.epub",
+      "pdf_url": "arystoteles-polityka.pdf"
     },
     "published": "2026-07-19"
   },
