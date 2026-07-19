@@ -250,5 +250,103 @@
       "pdf_url": "lewis-carroll-alice.pdf"
     },
     "published": "2026-07-19"
+  },
+  {
+    "id": "machiavelli-traktat-o-ksieciu",
+    "title": "Książę",
+    "author": "Niccolò Machiavelli",
+    "year": "XV–XVI w.",
+    "description": "",
+    "cover_file": "machiavelli-traktat-o-ksieciu-cover.jpg",
+    "files": {
+      "html": "machiavelli-traktat-o-ksieciu.html",
+      "epub": "machiavelli-traktat-o-ksieciu.epub",
+      "pdf": "machiavelli-traktat-o-ksieciu.pdf"
+    },
+    "audio": [
+      "machiavelli-traktat-o-ksieciu-part000.mp3",
+      "machiavelli-traktat-o-ksieciu-part001.mp3",
+      "machiavelli-traktat-o-ksieciu-part002.mp3",
+      "machiavelli-traktat-o-ksieciu-part003.mp3",
+      "machiavelli-traktat-o-ksieciu-part004.mp3",
+      "machiavelli-traktat-o-ksieciu-part005.mp3"
+    ],
+    "audio_source": "wolnelektury",
+    "attribution": {
+      "statement": "Książka pochodzi z serwisu Wolne Lektury",
+      "source": "Wolne Lektury",
+      "source_url": "https://wolnelektury.pl",
+      "book_url": "https://wolnelektury.pl/katalog/lektura/machiavelli-traktat-o-ksieciu/",
+      "license": "Wolna licencja",
+      "epub_url": "https://wolnelektury.pl/media/book/epub/machiavelli-traktat-o-ksieciu.epub",
+      "pdf_url": "https://wolnelektury.pl/media/book/pdf/machiavelli-traktat-o-ksieciu.pdf",
+      "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/machiavelli-traktat-o-ksieciu_mp3.zip"
+    },
+    "published": "2026-07-19"
+  },
+  {
+    "id": "platon-panstwo",
+    "title": "Państwo",
+    "author": "Platon",
+    "year": "do 476",
+    "description": "",
+    "cover_file": "platon-panstwo-cover.jpg",
+    "files": {
+      "html": "platon-panstwo.html",
+      "epub": "platon-panstwo.epub",
+      "pdf": "platon-panstwo.pdf"
+    },
+    "audio": [
+      "platon-panstwo_001_wstep-i-ksiega-i-part000.mp3",
+      "platon-panstwo_001_wstep-i-ksiega-i-part001.mp3",
+      "platon-panstwo_001_wstep-i-ksiega-i-part002.mp3",
+      "platon-panstwo_001_wstep-i-ksiega-i-part003.mp3",
+      "platon-panstwo_002_ksiega-ii-part000.mp3",
+      "platon-panstwo_002_ksiega-ii-part001.mp3",
+      "platon-panstwo_002_ksiega-ii-part002.mp3",
+      "platon-panstwo_003_ksiega-iii-part000.mp3",
+      "platon-panstwo_003_ksiega-iii-part001.mp3",
+      "platon-panstwo_003_ksiega-iii-part002.mp3",
+      "platon-panstwo_004_ksiega-iv-part000.mp3",
+      "platon-panstwo_004_ksiega-iv-part001.mp3",
+      "platon-panstwo_004_ksiega-iv-part002.mp3",
+      "platon-panstwo_005_ksiega-v-part000.mp3",
+      "platon-panstwo_005_ksiega-v-part001.mp3",
+      "platon-panstwo_005_ksiega-v-part002.mp3",
+      "platon-panstwo_006_ksiega-vi-part000.mp3",
+      "platon-panstwo_006_ksiega-vi-part001.mp3",
+      "platon-panstwo_006_ksiega-vi-part002.mp3",
+      "platon-panstwo_007_ksiega-vii-part000.mp3",
+      "platon-panstwo_007_ksiega-vii-part001.mp3",
+      "platon-panstwo_007_ksiega-vii-part002.mp3",
+      "platon-panstwo_008_ksiega-viii-part000.mp3",
+      "platon-panstwo_008_ksiega-viii-part001.mp3",
+      "platon-panstwo_008_ksiega-viii-part002.mp3",
+      "platon-panstwo_009_ksiega-ix-part000.mp3",
+      "platon-panstwo_009_ksiega-ix-part001.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part000.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part001.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part002.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part003.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part004.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part005.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part006.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part007.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part008.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part009.mp3",
+      "platon-panstwo_010_ksiega-x-i-objasnienia-part010.mp3"
+    ],
+    "audio_source": "wolnelektury",
+    "attribution": {
+      "statement": "Książka pochodzi z serwisu Wolne Lektury",
+      "source": "Wolne Lektury",
+      "source_url": "https://wolnelektury.pl",
+      "book_url": "https://wolnelektury.pl/katalog/lektura/platon-panstwo/",
+      "license": "Wolna licencja",
+      "epub_url": "https://wolnelektury.pl/media/book/epub/platon-panstwo.epub",
+      "pdf_url": "https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf",
+      "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/platon-panstwo_mp3.zip"
+    },
+    "published": "2026-07-19"
   }
 ]

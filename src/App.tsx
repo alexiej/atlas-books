@@ -286,16 +286,22 @@ const Icon = {
       <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/>
     </svg>
   ),
-  SkipBack: () => (
+  PrevChapter: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
       <polygon points="19 20 9 12 19 4 19 20" fill="currentColor" stroke="none"/>
       <line x1="5" y1="19" x2="5" y2="5" strokeLinecap="round"/>
     </svg>
   ),
-  SkipForward: () => (
+  NextChapter: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
       <polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/>
       <line x1="19" y1="5" x2="19" y2="19" strokeLinecap="round"/>
+    </svg>
+  ),
+  Restart: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M3 3v5h5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   ),
   Music: () => (
@@ -855,6 +861,25 @@ export default function App() {
     }
     el.play().catch(() => {})
   }, [audioCurCh, audioPlaying])
+
+  // Load & immediately play a chapter (always loads, never toggles)
+  const loadAndPlayChapter = useCallback((chapterIdx: number) => {
+    const el  = audioRef.current
+    const ch  = book.chapters[chapterIdx]
+    const rawSrc = audioLang === 'pl'
+      ? (ch?.audio_pl || ch?.audio_en)
+      : (ch?.audio_en || ch?.audio_pl)
+    if (!el || !rawSrc) return
+    const parts = _audioParts(rawSrc)
+    audioPartsRef.current   = parts
+    audioPartIdxRef.current = 0
+    el.src = parts[0]
+    el.load()
+    el.play().catch(() => {})
+    setAudioCurCh(chapterIdx)
+    setAudioCurrent(0)
+    setAudioDuration(0)
+  }, [audioLang])
 
   // Switch language while same chapter is loaded
   const switchLang = useCallback((lang: 'pl' | 'en') => {
@@ -1514,136 +1539,163 @@ export default function App() {
           }
         }
 
+        // All chapters with audio, in order
+        const audioChapters = book.chapters
+          .map((ch, i) => ({ ch, i }))
+          .filter(({ ch }) => ch.audio_pl || ch.audio_en)
+        const activeAudioPos = audioChapters.findIndex(({ i }) => i === audioCurCh)
+
+        // Chapter navigation
+        const goPrev = () => {
+          const el = audioRef.current
+          // If >3s in, restart current chapter
+          if (el && el.currentTime > 3 && audioCurCh !== null) {
+            el.currentTime = 0; return
+          }
+          if (activeAudioPos > 0) loadAndPlayChapter(audioChapters[activeAudioPos - 1].i)
+          else if (audioChapters.length > 0) {
+            // restart from very beginning
+            const el2 = audioRef.current
+            if (el2) el2.currentTime = 0
+          }
+        }
+        const goNext = () => {
+          if (activeAudioPos >= 0 && activeAudioPos < audioChapters.length - 1)
+            loadAndPlayChapter(audioChapters[activeAudioPos + 1].i)
+        }
+        const goRestart = () => {
+          localStorage.removeItem(POS_KEY)
+          if (audioChapters.length > 0) loadAndPlayChapter(audioChapters[0].i)
+        }
+
         return (
           <div className="sf-audiobar">
-            {/* Language selector */}
-            {(audioMode === 'speech' || (playHasPl && playHasEn)) && (
-              <div className="sf-audio-langs">
-                {(['pl', 'en'] as const).map(l => (
+            {/* Row 1: chapter chips */}
+            {audioMode === 'mp3' && audioChapters.length > 1 && (
+              <div className="sf-audiobar-chapters">
+                {audioChapters.map(({ ch, i }) => (
                   <button
-                    key={l}
-                    className={`sf-audio-lang-btn${audioLang === l ? ' active' : ''}`}
-                    onClick={() => audioMode === 'mp3' ? switchLang(l) : setAudioLang(l)}
+                    key={i}
+                    className={`sf-audiobar-ch-btn${audioCurCh === i ? ' active' : ''}`}
+                    onClick={() => loadAndPlayChapter(i)}
+                    title={ch.title}
                   >
-                    {l.toUpperCase()}
+                    {typeof ch.number === 'number' ? ch.number : ch.number || String(i + 1)}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Mode toggle: MP3 | 🎤 Web Speech */}
-            <div className="sf-audio-mode">
-              {(playHasPl || playHasEn) && (
+            {/* Row 2: controls */}
+            <div className="sf-audiobar-controls">
+              {/* Mode toggle */}
+              <div className="sf-audio-mode">
+                {(playHasPl || playHasEn) && (
+                  <button
+                    className={`sf-audio-mode-btn${audioMode === 'mp3' ? ' active' : ''}`}
+                    onClick={() => switchAudioMode('mp3')}
+                    title="MP3"
+                  >MP3</button>
+                )}
                 <button
-                  className={`sf-audio-mode-btn${audioMode === 'mp3' ? ' active' : ''}`}
-                  onClick={() => switchAudioMode('mp3')}
-                  title="Tryb MP3 (plik audio)"
-                >MP3</button>
+                  className={`sf-audio-mode-btn${audioMode === 'speech' ? ' active' : ''}`}
+                  onClick={() => switchAudioMode('speech')}
+                  title="Web Speech"
+                ><Icon.Mic /></button>
+              </div>
+
+              {/* Language */}
+              {(audioMode === 'speech' || (playHasPl && playHasEn)) && (
+                <div className="sf-audio-langs">
+                  {(['pl', 'en'] as const).map(l => (
+                    <button key={l}
+                      className={`sf-audio-lang-btn${audioLang === l ? ' active' : ''}`}
+                      onClick={() => audioMode === 'mp3' ? switchLang(l) : setAudioLang(l)}
+                    >{l.toUpperCase()}</button>
+                  ))}
+                </div>
               )}
-              <button
-                className={`sf-audio-mode-btn${audioMode === 'speech' ? ' active' : ''}`}
-                onClick={() => switchAudioMode('speech')}
-                title="Tryb głosu (Web Speech API)"
-              >
-                <Icon.Mic />
+
+              {/* Restart */}
+              {audioMode === 'mp3' && (
+                <button className="sf-audio-skip-btn" onClick={goRestart} title="Restart od początku">
+                  <Icon.Restart />
+                </button>
+              )}
+
+              {/* Prev chapter */}
+              {audioMode === 'mp3' && (
+                <button className="sf-audio-skip-btn" onClick={goPrev} title="Poprzedni rozdział">
+                  <Icon.PrevChapter />
+                </button>
+              )}
+
+              {/* Play / pause */}
+              <button className="sf-audio-play-btn" onClick={handlePlay} title={isPlaying ? 'Pause' : 'Play'}>
+                {isPlaying ? <Icon.Pause /> : <Icon.Play />}
               </button>
-            </div>
 
-            {/* Skip -5s / +5s — MP3 only, LEFT of play */}
-            {audioMode === 'mp3' && (
-              <button
-                className="sf-audio-skip-btn"
-                onClick={() => skipAudio(-5)}
-                title="Back 5 seconds"
-              ><Icon.SkipBack /></button>
-            )}
-            {audioMode === 'mp3' && (
-              <button
-                className="sf-audio-skip-btn"
-                onClick={() => skipAudio(5)}
-                title="Forward 5 seconds"
-              ><Icon.SkipForward /></button>
-            )}
+              {/* Next chapter */}
+              {audioMode === 'mp3' && (
+                <button className="sf-audio-skip-btn" onClick={goNext} title="Następny rozdział">
+                  <Icon.NextChapter />
+                </button>
+              )}
 
-            {/* Play / pause */}
-            <button
-              className="sf-audio-play-btn"
-              onClick={handlePlay}
-              title={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying ? <Icon.Pause /> : <Icon.Play />}
-            </button>
+              {/* Word-highlight toggle */}
+              {(hasTiming || audioMode === 'speech') && (
+                <button
+                  className={`sf-audio-hl-btn${highlightMode ? ' active' : ''}`}
+                  onClick={() => setHighlightMode(m => !m)}
+                  title={highlightMode ? 'Wyłącz śledzenie' : 'Śledź tekst'}
+                ><Icon.Highlight /></button>
+              )}
 
-            {/* Word-highlight toggle */}
-            {(hasTiming || audioMode === 'speech') && (
-              <button
-                className={`sf-audio-hl-btn${highlightMode ? ' active' : ''}`}
-                onClick={() => setHighlightMode(m => !m)}
-                title={highlightMode ? 'Wyłącz śledzenie tekstu' : 'Śledź tekst'}
-              >
-                <Icon.Highlight />
-              </button>
-            )}
-
-            {/* Seek bar — MP3 only */}
-            {audioMode === 'mp3' && (
-              <div
-                className="sf-audio-track"
-                onClick={e => {
+              {/* Seek bar */}
+              {audioMode === 'mp3' && (
+                <div className="sf-audio-track" onClick={e => {
                   const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
                   seekAudio((e.clientX - rect.left) / rect.width)
-                }}
-              >
-                <div className="sf-audio-fill" style={{ width: `${audioProgress}%` }} />
-              </div>
-            )}
+                }}>
+                  <div className="sf-audio-fill" style={{ width: `${audioProgress}%` }} />
+                </div>
+              )}
+              {audioMode === 'speech' && (
+                <div className="sf-audio-track sf-audio-track--speech">
+                  <div className={`sf-audio-fill${speechPlaying ? ' sf-audio-fill--pulse' : ''}`}
+                    style={{ width: speechPlaying ? '100%' : '0%' }} />
+                </div>
+              )}
 
-            {/* Speech mode: animated wave bar */}
-            {audioMode === 'speech' && (
-              <div className="sf-audio-track sf-audio-track--speech">
-                <div
-                  className={`sf-audio-fill${speechPlaying ? ' sf-audio-fill--pulse' : ''}`}
-                  style={{ width: speechPlaying ? '100%' : '0%' }}
-                />
-              </div>
-            )}
-
-            {/* Time — MP3 only */}
-            {audioMode === 'mp3' && (
-              <span className="sf-audio-time">
-                {isLoaded
-                  ? `${formatTime(audioCurrent)} / ${formatTime(audioDuration)}`
-                  : `0:00 / 0:00`}
-              </span>
-            )}
-
-            {/* Audio source — bottom-right, music icon + label, MP3 only, no emoji */}
-            {audioMode === 'mp3' && (book.audio_label || book.audio_source) && (
-              <span style={{
-                marginLeft: 'auto',
-                display: 'flex', alignItems: 'center', gap: '3px',
-                fontFamily: 'var(--font-ui)', fontSize: '7px', letterSpacing: '0.1em',
-                textTransform: 'uppercase', color: 'var(--text-dim)',
-                whiteSpace: 'nowrap', opacity: 0.75,
-              }}>
-                <span style={{ width: '10px', height: '10px', display: 'inline-flex', flexShrink: 0 }}>
-                  <Icon.Music />
+              {/* Time */}
+              {audioMode === 'mp3' && (
+                <span className="sf-audio-time">
+                  {isLoaded ? `${formatTime(audioCurrent)} / ${formatTime(audioDuration)}` : '0:00'}
                 </span>
-                {(() => {
-                  if (book.audio_label) return book.audio_label
-                  const src = book.audio_source!
-                  const url = src === 'wolnelektury'
-                    ? book.attribution?.source_url || 'https://wolnelektury.pl'
-                    : null
-                  const text = src === 'wolnelektury' ? 'Wolne Lektury'
-                             : src === 'generated'    ? 'AI'
-                             : src
-                  return url
-                    ? <a href={url} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{text}</a>
-                    : text
-                })()}
-              </span>
-            )}
+              )}
+
+              {/* Audio source label */}
+              {audioMode === 'mp3' && (book.audio_label || book.audio_source) && (
+                <span style={{
+                  marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '3px',
+                  fontFamily: 'var(--font-ui)', fontSize: '7px', letterSpacing: '0.1em',
+                  textTransform: 'uppercase', color: 'var(--text-dim)', whiteSpace: 'nowrap', opacity: 0.75,
+                }}>
+                  <span style={{ width: '10px', height: '10px', display: 'inline-flex', flexShrink: 0 }}>
+                    <Icon.Music />
+                  </span>
+                  {(() => {
+                    if (book.audio_label) return book.audio_label
+                    const src = book.audio_source!
+                    const url = src === 'wolnelektury' ? book.attribution?.source_url || 'https://wolnelektury.pl' : null
+                    const text = src === 'wolnelektury' ? 'Wolne Lektury' : src === 'generated' ? 'AI' : src
+                    return url
+                      ? <a href={url} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{text}</a>
+                      : text
+                  })()}
+                </span>
+              )}
+            </div>
           </div>
         )
       })()}
