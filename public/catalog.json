@@ -1,127 +1,5 @@
 [
   {
-    "id": "odyssey",
-    "title": "The Odyssey",
-    "author": "Homer",
-    "year": "8th century BC",
-    "description": "An ancient Greek epic poem that follows Odysseus, king of Ithaca, on his perilous ten-year journey home after the Trojan War while his wife Penelope and son Telemachus face aggressive suitors at home.",
-    "cover_file": "odyssey-cover.jpg",
-    "files": {
-      "html": "odyssey.html",
-      "epub": "odyssey.epub",
-      "pdf": "odyssey.pdf"
-    },
-    "audio": [
-      "odyssey_01_homer_butler_64kb.mp3",
-      "odyssey_02_homer_butler_64kb.mp3",
-      "odyssey_03_homer_butler_64kb.mp3",
-      "odyssey_04_homer_butler_64kb-part000.mp3",
-      "odyssey_04_homer_butler_64kb-part001.mp3",
-      "odyssey_05_homer_butler_64kb.mp3",
-      "odyssey_06_homer_butler_64kb.mp3",
-      "odyssey_07_homer_butler_64kb.mp3",
-      "odyssey_08_homer_butler_64kb.mp3",
-      "odyssey_09_homer_butler_64kb-part000.mp3",
-      "odyssey_09_homer_butler_64kb-part001.mp3",
-      "odyssey_10_homer_butler_64kb.mp3",
-      "odyssey_11_homer_butler_64kb-part000.mp3",
-      "odyssey_11_homer_butler_64kb-part001.mp3",
-      "odyssey_12_homer_butler_64kb.mp3",
-      "odyssey_13_homer_butler_64kb.mp3",
-      "odyssey_14_homer_butler_64kb.mp3",
-      "odyssey_15_homer_butler_64kb.mp3",
-      "odyssey_16_homer_butler_64kb.mp3",
-      "odyssey_17_homer_butler_64kb.mp3",
-      "odyssey_18_homer_butler_64kb.mp3",
-      "odyssey_19_homer_butler_64kb.mp3",
-      "odyssey_20_homer_butler_64kb.mp3",
-      "odyssey_21_homer_butler_64kb.mp3",
-      "odyssey_22_homer_butler_64kb.mp3",
-      "odyssey_23_homer_butler_64kb.mp3",
-      "odyssey_24_homer_butler_64kb-part000.mp3",
-      "odyssey_24_homer_butler_64kb-part001.mp3"
-    ],
-    "audio_source": "LibriVox",
-    "attribution": {
-      "statement": "The book comes from Project Gutenberg",
-      "source": "Project Gutenberg",
-      "source_url": "https://www.gutenberg.org",
-      "book_url": "https://www.gutenberg.org/ebooks/1727",
-      "license": "Public domain in the USA",
-      "epub_url": "https://www.gutenberg.org/ebooks/1727.epub3.images",
-      "pdf_url": "odyssey.pdf",
-      "mp3_zip_url": null
-    },
-    "published": "2026-07-20"
-  },
-  {
-    "id": "homer-odyseja",
-    "title": "Odyseja",
-    "author": "Homer",
-    "year": "do 476",
-    "description": "",
-    "cover_file": "homer-odyseja-cover.jpg",
-    "files": {
-      "html": "homer-odyseja.html",
-      "epub": "homer-odyseja.epub",
-      "pdf": "homer-odyseja.pdf"
-    },
-    "audio": [
-      "homer-odyseja_001_piesn-pierwsza.mp3",
-      "homer-odyseja_002_piesn-druga.mp3",
-      "homer-odyseja_003_piesn-trzecia.mp3",
-      "homer-odyseja_004_piesn-czwarta-part000.mp3",
-      "homer-odyseja_004_piesn-czwarta-part001.mp3",
-      "homer-odyseja_004_piesn-czwarta.mp3",
-      "homer-odyseja_005_piesn-piata.mp3",
-      "homer-odyseja_006_piesn-szosta.mp3",
-      "homer-odyseja_007_piesn-siodma.mp3",
-      "homer-odyseja_008_piesn-osma-part000.mp3",
-      "homer-odyseja_008_piesn-osma-part001.mp3",
-      "homer-odyseja_008_piesn-osma.mp3",
-      "homer-odyseja_009_piesn-dziewiata-part000.mp3",
-      "homer-odyseja_009_piesn-dziewiata-part001.mp3",
-      "homer-odyseja_009_piesn-dziewiata.mp3",
-      "homer-odyseja_010_piesn-dziesiata-part000.mp3",
-      "homer-odyseja_010_piesn-dziesiata-part001.mp3",
-      "homer-odyseja_010_piesn-dziesiata.mp3",
-      "homer-odyseja_011_piesn-jedenasta-part000.mp3",
-      "homer-odyseja_011_piesn-jedenasta-part001.mp3",
-      "homer-odyseja_011_piesn-jedenasta.mp3",
-      "homer-odyseja_012_piesn-dwunasta.mp3",
-      "homer-odyseja_013_piesn-trzynasta.mp3",
-      "homer-odyseja_014_piesn-czternasta.mp3",
-      "homer-odyseja_015_piesn-pietnasta-part000.mp3",
-      "homer-odyseja_015_piesn-pietnasta-part001.mp3",
-      "homer-odyseja_015_piesn-pietnasta.mp3",
-      "homer-odyseja_016_piesn-szesnasta.mp3",
-      "homer-odyseja_017_piesn-siedemnasta-part000.mp3",
-      "homer-odyseja_017_piesn-siedemnasta-part001.mp3",
-      "homer-odyseja_017_piesn-siedemnasta.mp3",
-      "homer-odyseja_018_piesn-osiemnasta.mp3",
-      "homer-odyseja_019_piesn-dziewietnasta-part000.mp3",
-      "homer-odyseja_019_piesn-dziewietnasta-part001.mp3",
-      "homer-odyseja_019_piesn-dziewietnasta.mp3",
-      "homer-odyseja_020_piesn-dwudziesta.mp3",
-      "homer-odyseja_021_piesn-dwudziesta-pierwsza.mp3",
-      "homer-odyseja_022_piesn-dwudziesta-druga.mp3",
-      "homer-odyseja_023_piesn-dwudziesta-trzecia.mp3",
-      "homer-odyseja_024_piesn-dwudziesta-czwarta.mp3"
-    ],
-    "audio_source": "wolnelektury",
-    "attribution": {
-      "statement": "Książka pochodzi z serwisu Wolne Lektury",
-      "source": "Wolne Lektury",
-      "source_url": "https://wolnelektury.pl",
-      "book_url": "https://wolnelektury.pl/katalog/lektura/homer-odyseja/",
-      "license": "Wolna licencja",
-      "epub_url": "https://wolnelektury.pl/media/book/epub/homer-odyseja.epub",
-      "pdf_url": "https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf",
-      "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/homer-odyseja_mp3.zip"
-    },
-    "published": "2026-07-20"
-  },
-  {
     "id": "20-000-mil-podmorskiej-zeglugi",
     "title": "20 000 mil podmorskiej żeglugi",
     "author": "Jules Gabriel Verne",
@@ -193,7 +71,7 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/20-000-mil-podmorskiej-zeglugi.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/20-000-mil-podmorskiej-zeglugi_mp3.zip"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
   },
   {
     "id": "arystoteles-polityka",
@@ -220,7 +98,7 @@
       "epub_url": "arystoteles-polityka.epub",
       "pdf_url": "arystoteles-polityka.pdf"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
   },
   {
     "id": "darwin-o-powstawaniu-gatunkow",
@@ -284,7 +162,74 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/darwin-o-powstawaniu-gatunkow.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/darwin-o-powstawaniu-gatunkow.pdf"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
+  },
+  {
+    "id": "homer-odyseja",
+    "title": "Odyseja",
+    "author": "Homer",
+    "year": "do 476",
+    "description": "",
+    "cover_file": "homer-odyseja-cover.jpg",
+    "files": {
+      "html": "homer-odyseja.html",
+      "epub": "homer-odyseja.epub",
+      "pdf": "homer-odyseja.pdf"
+    },
+    "audio": [
+      "homer-odyseja_001_piesn-pierwsza.mp3",
+      "homer-odyseja_002_piesn-druga.mp3",
+      "homer-odyseja_003_piesn-trzecia.mp3",
+      "homer-odyseja_004_piesn-czwarta-part000.mp3",
+      "homer-odyseja_004_piesn-czwarta-part001.mp3",
+      "homer-odyseja_004_piesn-czwarta.mp3",
+      "homer-odyseja_005_piesn-piata.mp3",
+      "homer-odyseja_006_piesn-szosta.mp3",
+      "homer-odyseja_007_piesn-siodma.mp3",
+      "homer-odyseja_008_piesn-osma-part000.mp3",
+      "homer-odyseja_008_piesn-osma-part001.mp3",
+      "homer-odyseja_008_piesn-osma.mp3",
+      "homer-odyseja_009_piesn-dziewiata-part000.mp3",
+      "homer-odyseja_009_piesn-dziewiata-part001.mp3",
+      "homer-odyseja_009_piesn-dziewiata.mp3",
+      "homer-odyseja_010_piesn-dziesiata-part000.mp3",
+      "homer-odyseja_010_piesn-dziesiata-part001.mp3",
+      "homer-odyseja_010_piesn-dziesiata.mp3",
+      "homer-odyseja_011_piesn-jedenasta-part000.mp3",
+      "homer-odyseja_011_piesn-jedenasta-part001.mp3",
+      "homer-odyseja_011_piesn-jedenasta.mp3",
+      "homer-odyseja_012_piesn-dwunasta.mp3",
+      "homer-odyseja_013_piesn-trzynasta.mp3",
+      "homer-odyseja_014_piesn-czternasta.mp3",
+      "homer-odyseja_015_piesn-pietnasta-part000.mp3",
+      "homer-odyseja_015_piesn-pietnasta-part001.mp3",
+      "homer-odyseja_015_piesn-pietnasta.mp3",
+      "homer-odyseja_016_piesn-szesnasta.mp3",
+      "homer-odyseja_017_piesn-siedemnasta-part000.mp3",
+      "homer-odyseja_017_piesn-siedemnasta-part001.mp3",
+      "homer-odyseja_017_piesn-siedemnasta.mp3",
+      "homer-odyseja_018_piesn-osiemnasta.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta-part000.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta-part001.mp3",
+      "homer-odyseja_019_piesn-dziewietnasta.mp3",
+      "homer-odyseja_020_piesn-dwudziesta.mp3",
+      "homer-odyseja_021_piesn-dwudziesta-pierwsza.mp3",
+      "homer-odyseja_022_piesn-dwudziesta-druga.mp3",
+      "homer-odyseja_023_piesn-dwudziesta-trzecia.mp3",
+      "homer-odyseja_024_piesn-dwudziesta-czwarta.mp3"
+    ],
+    "audio_source": "wolnelektury",
+    "attribution": {
+      "statement": "Książka pochodzi z serwisu Wolne Lektury",
+      "source": "Wolne Lektury",
+      "source_url": "https://wolnelektury.pl",
+      "book_url": "https://wolnelektury.pl/katalog/lektura/homer-odyseja/",
+      "license": "Wolna licencja",
+      "epub_url": "https://wolnelektury.pl/media/book/epub/homer-odyseja.epub",
+      "pdf_url": "https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf",
+      "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/homer-odyseja_mp3.zip"
+    },
+    "published": "2026-07-21"
   },
   {
     "id": "lewis-carroll-alice",
@@ -304,7 +249,7 @@
       "epub_url": "lewis-carroll-alice.epub",
       "pdf_url": "lewis-carroll-alice.pdf"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
   },
   {
     "id": "machiavelli-traktat-o-ksieciu",
@@ -337,7 +282,62 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/machiavelli-traktat-o-ksieciu.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/machiavelli-traktat-o-ksieciu_mp3.zip"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
+  },
+  {
+    "id": "odyssey",
+    "title": "The Odyssey",
+    "author": "Homer",
+    "year": "8th century BC",
+    "description": "An ancient Greek epic poem that follows Odysseus, king of Ithaca, on his perilous ten-year journey home after the Trojan War while his wife Penelope and son Telemachus face aggressive suitors at home.",
+    "cover_file": "odyssey-cover.jpg",
+    "files": {
+      "html": "odyssey.html",
+      "epub": "odyssey.epub",
+      "pdf": "odyssey.pdf"
+    },
+    "audio": [
+      "odyssey_01_homer_butler_64kb.mp3",
+      "odyssey_02_homer_butler_64kb.mp3",
+      "odyssey_03_homer_butler_64kb.mp3",
+      "odyssey_04_homer_butler_64kb-part000.mp3",
+      "odyssey_04_homer_butler_64kb-part001.mp3",
+      "odyssey_05_homer_butler_64kb.mp3",
+      "odyssey_06_homer_butler_64kb.mp3",
+      "odyssey_07_homer_butler_64kb.mp3",
+      "odyssey_08_homer_butler_64kb.mp3",
+      "odyssey_09_homer_butler_64kb-part000.mp3",
+      "odyssey_09_homer_butler_64kb-part001.mp3",
+      "odyssey_10_homer_butler_64kb.mp3",
+      "odyssey_11_homer_butler_64kb-part000.mp3",
+      "odyssey_11_homer_butler_64kb-part001.mp3",
+      "odyssey_12_homer_butler_64kb.mp3",
+      "odyssey_13_homer_butler_64kb.mp3",
+      "odyssey_14_homer_butler_64kb.mp3",
+      "odyssey_15_homer_butler_64kb.mp3",
+      "odyssey_16_homer_butler_64kb.mp3",
+      "odyssey_17_homer_butler_64kb.mp3",
+      "odyssey_18_homer_butler_64kb.mp3",
+      "odyssey_19_homer_butler_64kb.mp3",
+      "odyssey_20_homer_butler_64kb.mp3",
+      "odyssey_21_homer_butler_64kb.mp3",
+      "odyssey_22_homer_butler_64kb.mp3",
+      "odyssey_23_homer_butler_64kb.mp3",
+      "odyssey_24_homer_butler_64kb-part000.mp3",
+      "odyssey_24_homer_butler_64kb-part001.mp3"
+    ],
+    "audio_source": "LibriVox",
+    "attribution": {
+      "statement": "The book comes from Project Gutenberg",
+      "source": "Project Gutenberg",
+      "source_url": "https://www.gutenberg.org",
+      "book_url": "https://www.gutenberg.org/ebooks/1727",
+      "license": "Public domain in the USA",
+      "epub_url": "https://www.gutenberg.org/ebooks/1727.epub3.images",
+      "pdf_url": "odyssey.pdf",
+      "mp3_zip_url": null
+    },
+    "published": "2026-07-21"
   },
   {
     "id": "platon-panstwo",
@@ -402,7 +402,7 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/platon-panstwo_mp3.zip"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
   },
   {
     "id": "rousseau-umowa-spoleczna",
@@ -427,6 +427,6 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf"
     },
-    "published": "2026-07-19"
+    "published": "2026-07-21"
   }
 ]

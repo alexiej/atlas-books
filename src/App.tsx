@@ -16,8 +16,34 @@ const book = (window.__BOOK_DATA__ ?? devBookData) as Book
 // Bookmarks are stored in localStorage (browser-local, never sent to a server).
 const BOOK_ID = book.id
   || book.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-const BM_KEY  = `sf-bm-${BOOK_ID}`
-const POS_KEY = `sf-pos-${BOOK_ID}`   // saved MP3 chapter + time
+const BM_KEY        = `sf-bm-${BOOK_ID}`
+const AUDIO_STATE_KEY = `sf-as-${BOOK_ID}`   // full audio persistent state
+
+interface AudioState {
+  ch?:         number                  // last chapter index
+  t?:          number                  // last time in that chapter
+  chTimes?:    Record<string, number>  // per-chapter saved times
+  lang?:       'pl' | 'en'
+  enabled?:    boolean
+  wasPlaying?: boolean
+}
+function loadAudioState(): AudioState {
+  try {
+    const v = localStorage.getItem(AUDIO_STATE_KEY)
+    if (v) return JSON.parse(v) as AudioState
+    // Backward compat: migrate old sf-pos-* key
+    const old = localStorage.getItem(`sf-pos-${BOOK_ID}`)
+    if (old) {
+      const o = JSON.parse(old)
+      const ch = o.ch; const t = o.t
+      return { ch, t, chTimes: ch != null && t ? { [String(ch)]: t } : {} }
+    }
+  } catch {}
+  return {}
+}
+function saveAudioState(next: AudioState) {
+  try { localStorage.setItem(AUDIO_STATE_KEY, JSON.stringify(next)) } catch {}
+}
 
 interface Bookmark {
   id:           string              // unique key (timestamp + random)
@@ -613,10 +639,14 @@ export default function App() {
   const [toc, setToc]         = useState(false)
   const [measured, setMeasured] = useState(false)
 
+  // ── Audio persistent state (single lazy load) ─────────────────────────────
+  const [_initAS] = useState(loadAudioState)   // lazy — called once on mount
+  const audioSavedRef = useRef<AudioState>(_initAS)
+
   // ── Audio state ────────────────────────────────────────────────────────────
   const audioRef       = useRef<HTMLAudioElement>(null)
-  const [audioEnabled,  setAudioEnabled]  = useState(false)  // toggled from topbar
-  const [audioLang,     setAudioLang]     = useState<'pl' | 'en'>('pl')
+  const [audioEnabled,  setAudioEnabled]  = useState<boolean>(() => _initAS.enabled ?? false)
+  const [audioLang,     setAudioLang]     = useState<'pl' | 'en'>(() => _initAS.lang ?? 'pl')
   const [audioCurCh,    setAudioCurCh]    = useState<number | null>(null)
   const [audioPlaying,  setAudioPlaying]  = useState(false)
   const [audioCurrent,  setAudioCurrent]  = useState(0)
@@ -631,6 +661,7 @@ export default function App() {
   const prevHlEl        = useRef<HTMLElement | null>(null)  // last highlighted span
   const rafRef          = useRef<number | null>(null)       // rAF handle
   const audioCurChRef   = useRef<number | null>(null)       // stable ref for onEnded closure
+  const audioPlayingRef = useRef(false)                     // stable ref for beforeunload
   const pagesRef        = useRef<PageSpec[]>([])            // stable ref for pages (used in RAF)
   const lastFollowPage  = useRef<number>(-1)                // last page we auto-navigated to
 
@@ -658,6 +689,11 @@ export default function App() {
   const [searchOpen,  setSearchOpen]  = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Per-chapter saved times ────────────────────────────────────────────────
+  const [chTimes, setChTimes] = useState<Record<string, number>>(() => _initAS.chTimes ?? {})
+  const chTimesRef = useRef<Record<string, number>>(_initAS.chTimes ?? {})
+  useEffect(() => { chTimesRef.current = chTimes }, [chTimes])
 
   // ── MP3 position save/restore refs ─────────────────────────────────────────
   const pendingSeekRef = useRef<number | null>(null)
@@ -832,8 +868,9 @@ export default function App() {
     }
   }, [runMeasurement])
 
-  // ── Save page position ─────────────────────────────────────────────────────
+  // ── Save page position (only after restore, so initial render doesn't overwrite) ──
   useEffect(() => {
+    if (!restoredRef.current) return
     localStorage.setItem('sf-page', String(pageIdx))
   }, [pageIdx])
 
@@ -915,13 +952,11 @@ export default function App() {
       audioPartIdxRef.current = 0
       el.src = parts[0]
       el.load()
-      // Restore saved playback position for this chapter
-      try {
-        const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
-        if (saved?.ch === chapterIdx && saved.t > 5) pendingSeekRef.current = saved.t
-      } catch {}
+      // Restore saved position for this chapter
+      const savedT = chTimesRef.current[String(chapterIdx)]
+      if (savedT && savedT > 1) pendingSeekRef.current = Math.max(0, savedT - 1)
       setAudioCurCh(chapterIdx)
-      setAudioCurrent(0)
+      setAudioCurrent(savedT ?? 0)
       setAudioDuration(0)
     }
     el.play().catch(() => {})
@@ -935,14 +970,26 @@ export default function App() {
       ? (ch?.audio_pl || ch?.audio_en)
       : (ch?.audio_en || ch?.audio_pl)
     if (!el || !rawSrc) return
+
+    // If this chapter is already loaded (e.g. restored from saved state on refresh),
+    // don't reload — just play from the current position.
+    if (audioCurChRef.current === chapterIdx) {
+      el.play().catch(() => {})
+      return
+    }
+
     const parts = _audioParts(rawSrc)
     audioPartsRef.current   = parts
     audioPartIdxRef.current = 0
     el.src = parts[0]
     el.load()
+    // Seek to saved position: chTimes entry → fallback to top-level t if same chapter
+    const savedT = chTimesRef.current[String(chapterIdx)]
+      ?? (audioSavedRef.current.ch === chapterIdx ? audioSavedRef.current.t : undefined)
+    if (savedT && savedT > 1) pendingSeekRef.current = Math.max(0, savedT - 1)
     el.play().catch(() => {})
     setAudioCurCh(chapterIdx)
-    setAudioCurrent(0)
+    setAudioCurrent(savedT ?? 0)
     setAudioDuration(0)
   }, [audioLang])
 
@@ -1041,8 +1088,81 @@ export default function App() {
   }, [])
 
   // Keep stable refs in sync
-  useEffect(() => { audioCurChRef.current = audioCurCh }, [audioCurCh])
-  useEffect(() => { pagesRef.current = pages }, [pages])
+  useEffect(() => { audioCurChRef.current  = audioCurCh },  [audioCurCh])
+  useEffect(() => { audioPlayingRef.current = audioPlaying }, [audioPlaying])
+  useEffect(() => { pagesRef.current        = pages },        [pages])
+
+  // ── Persist audio settings ─────────────────────────────────────────────────
+  useEffect(() => {
+    const next: AudioState = { ...audioSavedRef.current, enabled: audioEnabled }
+    audioSavedRef.current = next
+    saveAudioState(next)
+  }, [audioEnabled])
+
+  useEffect(() => {
+    const next: AudioState = { ...audioSavedRef.current, lang: audioLang }
+    audioSavedRef.current = next
+    saveAudioState(next)
+  }, [audioLang])
+
+  useEffect(() => {
+    if (!audioEnabled) return
+    const next: AudioState = { ...audioSavedRef.current, wasPlaying: audioPlaying }
+    audioSavedRef.current = next
+    saveAudioState(next)
+  }, [audioPlaying, audioEnabled])
+
+  // ── Immediate position flush (called on pause / beforeunload) ────────────
+  const flushAudioPos = useCallback((wasPlaying: boolean) => {
+    const el = audioRef.current
+    const ch = audioCurChRef.current
+    if (!el || ch === null || el.currentTime <= 0) return
+    const t = el.currentTime
+    const newChTimes = { ...chTimesRef.current, [String(ch)]: t }
+    chTimesRef.current = newChTimes
+    const next: AudioState = {
+      ...audioSavedRef.current,
+      ch, t, chTimes: newChTimes, wasPlaying,
+    }
+    audioSavedRef.current = next
+    saveAudioState(next)
+  }, [])
+
+  // Save on beforeunload (refresh / tab close)
+  useEffect(() => {
+    const handler = () => flushAudioPos(audioPlayingRef.current)
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [flushAudioPos])
+
+  // ── Pre-load saved chapter when audio bar first opens ─────────────────────
+  const didInitAudioRef = useRef(false)
+  useEffect(() => {
+    if (!audioEnabled || didInitAudioRef.current) return
+    if (audioCurChRef.current !== null) { didInitAudioRef.current = true; return }
+    didInitAudioRef.current = true
+    const s = audioSavedRef.current
+    const ch = s.ch
+    if (ch == null) return
+    const chapter = book.chapters[ch]
+    const rawSrc = audioLang === 'pl'
+      ? (chapter?.audio_pl || chapter?.audio_en)
+      : (chapter?.audio_en || chapter?.audio_pl)
+    if (!rawSrc) return
+    const el = audioRef.current
+    if (!el) return
+    const parts = _audioParts(rawSrc)
+    audioPartsRef.current   = parts
+    audioPartIdxRef.current = 0
+    el.src = parts[0]
+    el.load()
+    const seekTo = Math.max(0, (s.t ?? 0) - 1)
+    if (seekTo > 0) pendingSeekRef.current = seekTo
+    setAudioCurCh(ch)
+    setAudioCurrent(s.t ?? 0)
+    // If was playing when page was closed, try to resume
+    if (s.wasPlaying) el.play().catch(() => {})
+  }, [audioEnabled, audioLang])
 
   // ── Sync timing data ref when chapter / language changes ──────────────────
   useEffect(() => {
@@ -1542,14 +1662,21 @@ export default function App() {
           const el = audioRef.current
           if (el) {
             setAudioCurrent(el.currentTime)
-            // Save position (debounced, every ~2 s)
-            if (audioCurChRef.current !== null) {
+            const ch = audioCurChRef.current
+            if (ch !== null) {
               if (posTimerRef.current) clearTimeout(posTimerRef.current)
               posTimerRef.current = setTimeout(() => {
-                localStorage.setItem(POS_KEY, JSON.stringify({
-                  ch: audioCurChRef.current,
-                  t:  el.currentTime,
-                }))
+                const t = el.currentTime
+                const newChTimes = { ...chTimesRef.current, [String(ch)]: t }
+                chTimesRef.current = newChTimes
+                setChTimes(newChTimes)
+                const next: AudioState = {
+                  ...audioSavedRef.current,
+                  ch, t,
+                  chTimes: newChTimes,
+                }
+                audioSavedRef.current = next
+                saveAudioState(next)
               }, 2000)
             }
           }
@@ -1563,7 +1690,10 @@ export default function App() {
           }
         }}
         onPlay={() => setAudioPlaying(true)}
-        onPause={() => setAudioPlaying(false)}
+        onPause={() => {
+          setAudioPlaying(false)
+          flushAudioPos(false)  // save exact position immediately on pause
+        }}
         onEnded={() => {
           const el = audioRef.current
           // Part advance: next split-part of same chapter
@@ -1578,6 +1708,16 @@ export default function App() {
           // Chapter advance: next chapter with audio — NO page navigation
           audioPartIdxRef.current = 0
           const curCh = audioCurChRef.current
+          // Clear saved time for the chapter that just finished
+          if (curCh !== null) {
+            const newChTimes = { ...chTimesRef.current }
+            delete newChTimes[String(curCh)]
+            chTimesRef.current = newChTimes
+            setChTimes(newChTimes)
+            const next: AudioState = { ...audioSavedRef.current, chTimes: newChTimes }
+            audioSavedRef.current = next
+            saveAudioState(next)
+          }
           if (curCh !== null && el) {
             let nextCh: number | null = null
             for (let i = curCh + 1; i < book.chapters.length; i++) {
@@ -1646,8 +1786,8 @@ export default function App() {
             let startCh = activeChIdx
             if (audioCurCh === null) {
               try {
-                const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
-                if (saved?.ch != null) startCh = saved.ch as number
+                const saved = audioSavedRef.current
+                if (saved?.ch != null) startCh = saved.ch
               } catch {}
             }
             if (startCh !== null) toggleAudio(startCh, audioLang)
@@ -1681,7 +1821,15 @@ export default function App() {
             loadAndPlayChapter(audioChapters[activeAudioPos + 1].i)
         }
         const goRestart = () => {
-          localStorage.removeItem(POS_KEY)
+          chTimesRef.current = {}
+          setChTimes({})
+          const next: AudioState = {
+            ...audioSavedRef.current,
+            ch: undefined, t: undefined,
+            chTimes: {}, wasPlaying: false,
+          }
+          audioSavedRef.current = next
+          saveAudioState(next)
           if (audioChapters.length > 0) loadAndPlayChapter(audioChapters[0].i)
         }
 
@@ -1690,16 +1838,25 @@ export default function App() {
             {/* Row 1: chapter chips */}
             {audioMode === 'mp3' && audioChapters.length > 1 && (
               <div className="sf-audiobar-chapters">
-                {audioChapters.map(({ ch, i }) => (
-                  <button
-                    key={i}
-                    className={`sf-audiobar-ch-btn${audioCurCh === i ? ' active' : ''}`}
-                    onClick={() => loadAndPlayChapter(i)}
-                    title={ch.title}
-                  >
-                    {typeof ch.number === 'number' ? ch.number : ch.number || String(i + 1)}
-                  </button>
-                ))}
+                {audioChapters.map(({ ch, i }) => {
+                  const isActive = audioCurCh === i
+                  const dispT = isActive ? audioCurrent : (chTimes[String(i)] ?? 0)
+                  return (
+                    <button
+                      key={i}
+                      className={`sf-audiobar-ch-btn${isActive ? ' active' : ''}`}
+                      onClick={() => loadAndPlayChapter(i)}
+                      title={ch.title}
+                    >
+                      <span className="sf-audiobar-ch-num">
+                        {typeof ch.number === 'number' ? ch.number : ch.number || String(i + 1)}
+                      </span>
+                      {dispT > 0 && (
+                        <span className="sf-audiobar-ch-time">{formatTime(dispT)}</span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             )}
 

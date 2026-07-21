@@ -660,16 +660,30 @@ body {
   font-family: var(--font-head);
   font-size: 6.5px;
   letter-spacing: 0.08em;
-  padding: 2px 5px;
+  padding: 2px 6px;
   white-space: nowrap;
   flex-shrink: 0;
   transition: all 0.12s;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 .sf-audiobar-ch-btn:hover { color: var(--gold); border-color: var(--gold); }
 .sf-audiobar-ch-btn.active {
   background: var(--gold);
   border-color: var(--gold);
   color: var(--surface);
+}
+.sf-audiobar-ch-num { }
+.sf-audiobar-ch-time {
+  font-size: 6px;
+  letter-spacing: 0.03em;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.sf-audiobar-ch-btn.active .sf-audiobar-ch-time {
+  opacity: 0.8;
 }
 .sf-audiobar-controls {
   display: flex;
