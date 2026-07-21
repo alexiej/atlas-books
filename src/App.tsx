@@ -55,6 +55,8 @@ interface PageSpec {
   blockStart: number   // inclusive index into chapter.blocks
   blockEnd: number     // exclusive
   scrollable?: boolean // true for S preset
+  // When a verse block is split across pages, restrict rendering to these lines:
+  verseSlice?: { bi: number; lineStart: number; lineEnd: number }
 }
 
 // ── Block height measurement ──────────────────────────────────────────────────
@@ -111,6 +113,12 @@ function measureBlockH(
       const textH  = layout(handle, innerW, fontSize * 1.7).height
       const labelH = block.label ? 7 + 0.4 * rem : 0
       h = 1.7 * rem + textH + labelH
+      break
+    }
+    case 'verse': {
+      // Count actual newline-separated lines; use verse CSS line-height (1.9)
+      const lines = (block.text || '').split('\n').length
+      h = lines * fontSize * 1.9
       break
     }
     default:
@@ -469,7 +477,9 @@ function ContentPageView({ spec, highlightMode, bookmarksForChapter, onBookmarkC
       >
         <div className="page-content-inner">
           {visibleBlocks.map((block, i) => {
-            const origIdx = spec.blockStart + i
+            const origIdx   = spec.blockStart + i
+            // If this page slices a verse block, pass the line range
+            const vSlice    = spec.verseSlice?.bi === origIdx ? spec.verseSlice : undefined
             return (
               <BlockRenderer
                 key={origIdx}
@@ -480,6 +490,8 @@ function ContentPageView({ spec, highlightMode, bookmarksForChapter, onBookmarkC
                 blockIdx={origIdx}
                 bookmarkHighlights={highlights}
                 onBookmarkClick={onBookmarkClick}
+                verseLineStart={vSlice?.lineStart}
+                verseLineEnd={vSlice?.lineEnd}
               />
             )
           })}
@@ -615,10 +627,12 @@ export default function App() {
 
   // ── Word-highlight (karaoke) state ─────────────────────────────────────────
   const [highlightMode, setHighlightMode] = useState(false)
-  const timingWordsRef = useRef<TimingWord[]>([])    // current chapter timing
-  const prevHlEl       = useRef<HTMLElement | null>(null)  // last highlighted span
-  const rafRef         = useRef<number | null>(null)       // rAF handle
-  const audioCurChRef  = useRef<number | null>(null)       // stable ref for onEnded closure
+  const timingWordsRef  = useRef<TimingWord[]>([])          // current chapter timing
+  const prevHlEl        = useRef<HTMLElement | null>(null)  // last highlighted span
+  const rafRef          = useRef<number | null>(null)       // rAF handle
+  const audioCurChRef   = useRef<number | null>(null)       // stable ref for onEnded closure
+  const pagesRef        = useRef<PageSpec[]>([])            // stable ref for pages (used in RAF)
+  const lastFollowPage  = useRef<number>(-1)                // last page we auto-navigated to
 
   // ── Audio mode: 'mp3' (file) | 'speech' (Web Speech API) ─────────────────
   const [audioMode,      setAudioMode]     = useState<'mp3' | 'speech'>('mp3')
@@ -695,14 +709,59 @@ export default function App() {
         return
       }
 
-      // Paginated: accumulate block heights and split at block boundaries
-      const subPages: Array<{ blockStart: number; blockEnd: number }> = []
+      // Paginated: accumulate block heights and split at block boundaries.
+      // Verse blocks are split line-by-line (verseSlice) so long poems paginate.
+      type SubPage = { blockStart: number; blockEnd: number; verseSlice?: { bi: number; lineStart: number; lineEnd: number } }
+      const subPages: SubPage[] = []
       let blockStart = 0
       let acc        = 0
       let capacity   = h0  // first page uses h0 (smaller, has header)
 
       for (let i = 0; i < blocks.length; i++) {
-        const bh = measureBlockH(blocks[i], i, i === 0, fontSize, cw)
+        const block = blocks[i]
+
+        if (block.type === 'verse') {
+          // ── Verse: split into line-range slices ──────────────────────────
+          const allLines    = (block.text || '').split('\n')
+          const lineHv      = fontSize * 1.9  // CSS line-height: 1.9
+          const gapH        = i > blockStart ? 1.3 * fontSize : 0
+          const totalVH     = allLines.length * lineHv + gapH
+
+          if (acc + totalVH <= capacity) {
+            // Entire verse fits remaining space → treat as normal block
+            acc += totalVH
+          } else {
+            // Verse needs splitting
+            // 1. Push blocks accumulated before this verse (if any)
+            if (i > blockStart) {
+              subPages.push({ blockStart, blockEnd: i })
+              capacity = hN
+              acc = 0
+            }
+            // 2. Slice verse across as many pages as needed
+            let lineStart = 0
+            let firstSlice = true
+            while (lineStart < allLines.length) {
+              const pageH      = firstSlice ? (capacity - acc) : hN
+              firstSlice       = false
+              const linesAvail = Math.max(1, Math.floor(pageH / lineHv))
+              const lineEnd    = Math.min(lineStart + linesAvail, allLines.length)
+              const isWholeVerse = lineStart === 0 && lineEnd === allLines.length
+              const sp: SubPage = { blockStart: i, blockEnd: i + 1 }
+              if (!isWholeVerse) sp.verseSlice = { bi: i, lineStart, lineEnd }
+              subPages.push(sp)
+              lineStart = lineEnd
+            }
+            // 3. Reset accumulator for blocks after the verse
+            blockStart = i + 1
+            acc        = 0
+            capacity   = hN
+          }
+          continue
+        }
+
+        // ── Regular block ────────────────────────────────────────────────
+        const bh = measureBlockH(block, i, i === 0, fontSize, cw)
 
         if (acc + bh > capacity && i > blockStart) {
           // This block overflows — cut before it
@@ -713,16 +772,22 @@ export default function App() {
         }
         acc += bh
       }
-      // Final (or only) sub-page
-      subPages.push({ blockStart, blockEnd: blocks.length })
+      // Final (or only) sub-page for remaining blocks
+      if (blockStart < blocks.length) {
+        subPages.push({ blockStart, blockEnd: blocks.length })
+      } else if (subPages.length === 0) {
+        subPages.push({ blockStart: 0, blockEnd: 0 })
+      }
 
       const totalSubs = subPages.length
-      subPages.forEach(({ blockStart, blockEnd }, sp) => {
-        list.push({
+      subPages.forEach(({ blockStart, blockEnd, verseSlice }, sp) => {
+        const entry: PageSpec = {
           kind: 'content', chapterIdx: ci,
           subPage: sp, totalSubs,
           blockStart, blockEnd,
-        })
+        }
+        if (verseSlice) entry.verseSlice = verseSlice
+        list.push(entry)
       })
     })
 
@@ -977,15 +1042,18 @@ export default function App() {
 
   // Keep stable refs in sync
   useEffect(() => { audioCurChRef.current = audioCurCh }, [audioCurCh])
+  useEffect(() => { pagesRef.current = pages }, [pages])
 
   // ── Sync timing data ref when chapter / language changes ──────────────────
   useEffect(() => {
     if (audioCurCh === null) {
       timingWordsRef.current = []
+      lastFollowPage.current = -1
       return
     }
     const ch = book.chapters[audioCurCh]
     timingWordsRef.current = (audioLang === 'pl' ? ch?.timing_pl : ch?.timing_en) ?? []
+    lastFollowPage.current = -1  // reset so page-follow re-triggers for new chapter
   }, [audioCurCh, audioLang])
 
 
@@ -1016,9 +1084,58 @@ export default function App() {
       const tw = idx >= 0 ? words[idx] : null
       clearHL()
 
-      if (tw?.type === 'block' && tw.part === 'text' && tw.bi !== undefined && tw.wi !== undefined) {
-        const el = document.querySelector<HTMLElement>(`[data-bi="${tw.bi}"][data-wi="${tw.wi}"]`)
-        if (el) { el.classList.add('word-hi'); prevHlEl.current = el }
+      if (tw?.type === 'block' && tw.bi !== undefined) {
+        // Word highlight
+        if (tw.part === 'text' && tw.wi !== undefined) {
+          const el = document.querySelector<HTMLElement>(`[data-bi="${tw.bi}"][data-wi="${tw.wi}"]`)
+          if (el) { el.classList.add('word-hi'); prevHlEl.current = el }
+        }
+
+        // Page follow: navigate to the page containing this block (only in highlightMode)
+        const curChIdx = audioCurChRef.current
+        if (curChIdx !== null && tw.bi !== undefined) {
+          const pg      = pagesRef.current
+          const twBi    = tw.bi
+          const twWi    = tw.wi ?? 0
+
+          // Candidates: pages covering this block
+          const candidates = pg.reduce<number[]>((acc, p, idx) => {
+            if (p.kind === 'content' && p.chapterIdx === curChIdx
+                && p.blockStart <= twBi && twBi < p.blockEnd) acc.push(idx)
+            return acc
+          }, [])
+
+          let targetPage = -1
+          if (candidates.length === 1) {
+            targetPage = candidates[0]
+          } else if (candidates.length > 1) {
+            // Verse split across pages — find which slice contains word wi
+            // Compute line index for current word wi
+            const verseCh = book.chapters[curChIdx]
+            const verseText = verseCh?.blocks[twBi]?.text || ''
+            const verseLines = verseText.split('\n')
+            let wordCount = 0, wordLine = 0
+            for (let li = 0; li < verseLines.length; li++) {
+              const lw = verseLines[li].split(/\s+/).filter(w => w).length
+              if (wordCount + lw > twWi) { wordLine = li; break }
+              wordCount += lw
+            }
+            // Find page whose verseSlice covers wordLine
+            for (const pidx of candidates) {
+              const p = pg[pidx]
+              if (!p.verseSlice) { targetPage = pidx; break }  // whole verse
+              if (p.verseSlice.lineStart <= wordLine && wordLine < p.verseSlice.lineEnd) {
+                targetPage = pidx; break
+              }
+            }
+            if (targetPage < 0) targetPage = candidates[0]
+          }
+
+          if (targetPage >= 0 && targetPage !== lastFollowPage.current) {
+            lastFollowPage.current = targetPage
+            setPageIdx(targetPage)
+          }
+        }
       }
 
       rafRef.current = requestAnimationFrame(tick)

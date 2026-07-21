@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { BookBlock, BookmarkHighlight } from '../types'
 
 interface Props {
@@ -8,6 +9,9 @@ interface Props {
   blockIdx?: number           // original index in chapter.blocks (for data-bi / data-block-idx)
   bookmarkHighlights?: BookmarkHighlight[]
   onBookmarkClick?: (id: string, rect: DOMRect) => void
+  // For paginated verse blocks — only render lines [lineStart, lineEnd)
+  verseLineStart?: number
+  verseLineEnd?: number
 }
 
 // ── Per-word spans for audio karaoke highlighting ─────────────────────────────
@@ -130,6 +134,7 @@ function TextWithHighlights({
 export function BlockRenderer({
   block, prevType, isFirst, highlightMode, blockIdx,
   bookmarkHighlights, onBookmarkClick,
+  verseLineStart, verseLineEnd,
 }: Props) {
   const hl  = !!(highlightMode && blockIdx !== undefined)
   const bi  = blockIdx ?? 0
@@ -217,21 +222,55 @@ export function BlockRenderer({
         </figure>
       )
 
-    case 'verse':
+    case 'verse': {
+      const allLines  = (block.text || '').split('\n')
+      const lineStart = verseLineStart ?? 0
+      const lineEnd   = verseLineEnd   ?? allLines.length
+      const lines     = allLines.slice(lineStart, lineEnd)
+
+      // Compute the word offset so data-wi indices are consistent with the
+      // full verse block (critical for audio karaoke highlighting across slices)
+      const preSliceWords = lineStart > 0
+        ? allLines.slice(0, lineStart).join(' ').split(/\s+/).filter(w => w).length
+        : 0
+
+      const preStyle: CSSProperties = {
+        fontFamily: 'var(--font-body)', fontStyle: 'italic',
+        whiteSpace: 'pre-wrap', color: 'var(--text-dim)',
+        lineHeight: 1.9, paddingLeft: '1.5rem',
+        borderLeft: '1px solid var(--border)',
+        margin: 0,
+      }
+
+      if (!hl) {
+        return (
+          <pre className="block" data-block-idx={bdi} style={preStyle}>
+            {lines.join('\n')}
+          </pre>
+        )
+      }
+
+      // Karaoke mode: wrap each word in a span with correct data-wi
+      let wi = preSliceWords
       return (
-        <pre
-          className="block"
-          data-block-idx={bdi}
-          style={{
-            fontFamily: 'var(--font-body)', fontStyle: 'italic',
-            whiteSpace: 'pre-wrap', color: 'var(--text-dim)',
-            lineHeight: 1.9, paddingLeft: '1.5rem',
-            borderLeft: '1px solid var(--border)',
-          }}
-        >
-          {block.text}
+        <pre className="block" data-block-idx={bdi} style={preStyle}>
+          {lines.map((line, li) => {
+            const tokens = line.split(/(\s+)/)
+            const lineEls = tokens.map((tok, ti) => {
+              if (/^\s+$/.test(tok) || tok === '') return tok
+              const wordIdx = wi++
+              return <span key={ti} data-bi={bi} data-wi={wordIdx}>{tok}</span>
+            })
+            return (
+              <span key={li}>
+                {li > 0 && '\n'}
+                {lineEls}
+              </span>
+            )
+          })}
         </pre>
       )
+    }
 
     default:
       return null
