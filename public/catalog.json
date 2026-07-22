@@ -325,6 +325,31 @@
     "published": "2026-07-22"
   },
   {
+    "id": "rousseau-umowa-spoleczna",
+    "title": "Umowa społeczna",
+    "author": "Jean-Jacques Rousseau",
+    "year": "XVIII w.",
+    "description": "",
+    "cover_file": "rousseau-umowa-spoleczna-cover.jpg",
+    "files": {
+      "html": "rousseau-umowa-spoleczna.html",
+      "epub": "rousseau-umowa-spoleczna.epub",
+      "pdf": "rousseau-umowa-spoleczna.pdf"
+    },
+    "audio": [],
+    "audio_source": "",
+    "attribution": {
+      "statement": "Książka pochodzi z serwisu Wolne Lektury",
+      "source": "Wolne Lektury",
+      "source_url": "https://wolnelektury.pl",
+      "book_url": "https://wolnelektury.pl/katalog/lektura/rousseau-umowa-spoleczna/",
+      "license": "Wolna licencja",
+      "epub_url": "https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub",
+      "pdf_url": "https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf"
+    },
+    "published": "2026-07-22"
+  },
+  {
     "id": "platon-panstwo",
     "title": "Państwo",
     "author": "Platon",
@@ -417,31 +442,6 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/platon-panstwo.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/platon-panstwo_mp3.zip"
-    },
-    "published": "2026-07-22"
-  },
-  {
-    "id": "rousseau-umowa-spoleczna",
-    "title": "Umowa społeczna",
-    "author": "Jean-Jacques Rousseau",
-    "year": "XVIII w.",
-    "description": "",
-    "cover_file": "rousseau-umowa-spoleczna-cover.jpg",
-    "files": {
-      "html": "rousseau-umowa-spoleczna.html",
-      "epub": "rousseau-umowa-spoleczna.epub",
-      "pdf": "rousseau-umowa-spoleczna.pdf"
-    },
-    "audio": [],
-    "audio_source": "",
-    "attribution": {
-      "statement": "Książka pochodzi z serwisu Wolne Lektury",
-      "source": "Wolne Lektury",
-      "source_url": "https://wolnelektury.pl",
-      "book_url": "https://wolnelektury.pl/katalog/lektura/rousseau-umowa-spoleczna/",
-      "license": "Wolna licencja",
-      "epub_url": "https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub",
-      "pdf_url": "https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf"
     },
     "published": "2026-07-22"
   }
