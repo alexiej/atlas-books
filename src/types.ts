@@ -28,6 +28,8 @@ export interface Chapter {
   blocks: BookBlock[]
   audio_pl?: string | string[]  // path(s) to Polish MP3 — array when file was split at publish time
   audio_en?: string | string[]  // path(s) to English MP3
+  seek_to_pl?: number  // chapter start time in the audio (for continuous recordings spanning multiple chapters)
+  seek_to_en?: number
   timing_pl?: TimingWord[]  // word timing data for PL audio (embedded by tts.py)
   timing_en?: TimingWord[]  // word timing data for EN audio
 }

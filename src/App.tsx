@@ -281,12 +281,41 @@ const Icon = {
       <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
     </svg>
   ),
-  // Word-highlight / karaoke mode indicator
+  // Word-highlight / karaoke mode indicator (off state)
   Highlight: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
       <line x1="4" y1="6" x2="20" y2="6" strokeLinecap="round"/>
-      <rect x="4" y="10" width="16" height="4" rx="1" fill="currentColor" opacity="0.35" stroke="none"/>
+      <rect x="4" y="10" width="16" height="4" rx="1" fill="currentColor" opacity="0.25" stroke="none"/>
       <line x1="4" y1="18" x2="15" y2="18" strokeLinecap="round"/>
+    </svg>
+  ),
+  // Word-highlight active — rect filled + sync dot
+  HighlightOn: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <line x1="4" y1="6" x2="20" y2="6" strokeLinecap="round"/>
+      <rect x="4" y="10" width="16" height="4" rx="1" fill="currentColor" stroke="none"/>
+      <line x1="4" y1="18" x2="13" y2="18" strokeLinecap="round"/>
+      <circle cx="19" cy="18" r="2.5" fill="currentColor" stroke="none"/>
+    </svg>
+  ),
+  // Skip back 5 s
+  Skip5Back: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M8 9L5 12l3 3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M5 12h8a5 5 0 1 1-5 5" strokeLinecap="round"/>
+      <text x="12.5" y="13.5" textAnchor="middle" dominantBaseline="middle"
+            fontSize="5.5" fontFamily="system-ui,sans-serif" fontWeight="700"
+            fill="currentColor" stroke="none">5</text>
+    </svg>
+  ),
+  // Skip forward 5 s
+  Skip5Fwd: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M16 9l3 3-3 3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M19 12h-8a5 5 0 1 0 5 5" strokeLinecap="round"/>
+      <text x="11.5" y="13.5" textAnchor="middle" dominantBaseline="middle"
+            fontSize="5.5" fontFamily="system-ui,sans-serif" fontWeight="700"
+            fill="currentColor" stroke="none">5</text>
     </svg>
   ),
   Mic: () => (
@@ -652,8 +681,11 @@ export default function App() {
   const [audioCurrent,  setAudioCurrent]  = useState(0)
   const [audioDuration, setAudioDuration] = useState(0)
   // Multi-part MP3 support — when a chapter's audio was split into several files
-  const audioPartsRef   = useRef<string[]>([])   // all parts for the currently loaded chapter
-  const audioPartIdxRef = useRef(0)              // which part is currently loaded
+  const audioPartsRef      = useRef<string[]>([])   // all parts for the currently loaded chapter
+  const audioPartIdxRef    = useRef(0)              // which part is currently loaded
+  const audioPartOffsetRef = useRef(0)              // global time (seconds) at the start of current part
+  const audioPartDursRef   = useRef<number[]>([])   // duration of each part, filled as parts load
+  const preloadCleanupRef  = useRef<(() => void) | undefined>(undefined)  // cancel stale preloader
 
   // ── Word-highlight (karaoke) state ─────────────────────────────────────────
   const [highlightMode, setHighlightMode] = useState(false)
@@ -933,6 +965,32 @@ export default function App() {
     return parts[0]
   }
 
+  // Preload durations for all parts >0 in the background so seekAudio has accurate data.
+  // onUpdate() is called after each part loads — use it to push updated total to setAudioDuration.
+  const preloadPartDurs = useCallback((parts: string[], onUpdate?: () => void) => {
+    if (parts.length <= 1) return
+    const probe = new Audio()
+    let idx = 1
+    let alive = true  // set to false when chapter changes so stale callback is ignored
+    const loadNext = () => {
+      if (!alive || idx >= parts.length) return
+      probe.src = parts[idx]
+      probe.load()
+    }
+    probe.onloadedmetadata = () => {
+      if (alive) {
+        audioPartDursRef.current[idx] = probe.duration
+        onUpdate?.()
+      }
+      idx++
+      loadNext()
+    }
+    probe.onerror = () => { idx++; loadNext() }
+    loadNext()
+    // Return cleanup to cancel stale preloads when chapter changes
+    return () => { alive = false }
+  }, [])
+
   // ── Audio controls ─────────────────────────────────────────────────────────
   const toggleAudio = useCallback((chapterIdx: number, lang: 'pl' | 'en') => {
     const el  = audioRef.current
@@ -948,19 +1006,34 @@ export default function App() {
     }
     if (audioCurCh !== chapterIdx) {
       const parts = _audioParts(rawSrc)
-      audioPartsRef.current   = parts
-      audioPartIdxRef.current = 0
+      audioPartsRef.current      = parts
+      audioPartIdxRef.current    = 0
+      audioPartOffsetRef.current = 0
+      audioPartDursRef.current   = []
       el.src = parts[0]
       el.load()
-      // Restore saved position for this chapter
+      preloadCleanupRef.current?.()  // cancel any previous stale preloader
+      preloadCleanupRef.current = preloadPartDurs(parts, () => {
+        const total = audioPartDursRef.current.reduce((a, d) => a + (d || 0), 0)
+        setAudioDuration(prev => Math.max(prev, total))
+      })
+      // Total duration from timing data (authoritative); falls back to 0 until metadata loads
+      const chTiming = audioLang === 'pl' ? ch?.timing_pl : ch?.timing_en
+      const totalDur = chTiming?.length ? chTiming[chTiming.length - 1].e : 0
+      setAudioDuration(totalDur || 0)
+      // Restore saved position; fall back to chapter's natural start in the audio
       const savedT = chTimesRef.current[String(chapterIdx)]
-      if (savedT && savedT > 1) pendingSeekRef.current = Math.max(0, savedT - 1)
+      const ch_seek = (audioLang === 'pl' ? ch?.seek_to_pl : ch?.seek_to_en) ?? 0
+      if (savedT && savedT > 1) {
+        pendingSeekRef.current = Math.max(0, savedT - 1)
+      } else if (ch_seek > 2) {
+        pendingSeekRef.current = Math.max(0, ch_seek - 1)
+      }
       setAudioCurCh(chapterIdx)
-      setAudioCurrent(savedT ?? 0)
-      setAudioDuration(0)
+      setAudioCurrent(savedT ?? (ch_seek > 2 ? ch_seek : 0))
     }
     el.play().catch(() => {})
-  }, [audioCurCh, audioPlaying])
+  }, [audioCurCh, audioPlaying, preloadPartDurs])
 
   // Load & immediately play a chapter (always loads, never toggles)
   const loadAndPlayChapter = useCallback((chapterIdx: number) => {
@@ -979,19 +1052,30 @@ export default function App() {
     }
 
     const parts = _audioParts(rawSrc)
-    audioPartsRef.current   = parts
-    audioPartIdxRef.current = 0
+    audioPartsRef.current      = parts
+    audioPartIdxRef.current    = 0
+    audioPartOffsetRef.current = 0
+    audioPartDursRef.current   = []
     el.src = parts[0]
     el.load()
-    // Seek to saved position: chTimes entry → fallback to top-level t if same chapter
+    preloadPartDurs(parts)  // fill durations for parts 1+ in background
+    // Total duration from timing data (authoritative); falls back to 0 until metadata loads
+    const chTiming = audioLang === 'pl' ? ch?.timing_pl : ch?.timing_en
+    const totalDur = chTiming?.length ? chTiming[chTiming.length - 1].e : 0
+    setAudioDuration(totalDur || 0)
+    // Seek to saved position; fall back to chapter's natural start in the audio
     const savedT = chTimesRef.current[String(chapterIdx)]
       ?? (audioSavedRef.current.ch === chapterIdx ? audioSavedRef.current.t : undefined)
-    if (savedT && savedT > 1) pendingSeekRef.current = Math.max(0, savedT - 1)
+    const ch_seek = (audioLang === 'pl' ? ch?.seek_to_pl : ch?.seek_to_en) ?? 0
+    if (savedT && savedT > 1) {
+      pendingSeekRef.current = Math.max(0, savedT - 1)
+    } else if (ch_seek > 2) {
+      pendingSeekRef.current = Math.max(0, ch_seek - 1)
+    }
     el.play().catch(() => {})
     setAudioCurCh(chapterIdx)
-    setAudioCurrent(savedT ?? 0)
-    setAudioDuration(0)
-  }, [audioLang])
+    setAudioCurrent(savedT ?? (ch_seek > 2 ? ch_seek : 0))
+  }, [audioLang, preloadPartDurs])
 
   // Switch language while same chapter is loaded
   const switchLang = useCallback((lang: 'pl' | 'en') => {
@@ -1003,20 +1087,67 @@ export default function App() {
       ? (ch?.audio_pl || ch?.audio_en)
       : (ch?.audio_en || ch?.audio_pl)
     if (!el || !rawSrc) return
+    // Capture current global position before resetting part state
+    const currentGlobal = audioPartOffsetRef.current + el.currentTime
     const parts = _audioParts(rawSrc)
-    audioPartsRef.current   = parts
-    audioPartIdxRef.current = 0
-    const t = el.currentTime
+    audioPartsRef.current      = parts
+    audioPartIdxRef.current    = 0
+    audioPartOffsetRef.current = 0
+    audioPartDursRef.current   = []
     el.src = parts[0]
     el.load()
-    el.currentTime = t
+    // Set duration from new lang's timing; seek to same global position
+    const chTiming = lang === 'pl' ? ch?.timing_pl : ch?.timing_en
+    const totalDur = chTiming?.length ? chTiming[chTiming.length - 1].e : 0
+    setAudioDuration(totalDur || 0)
+    if (currentGlobal > 0) pendingSeekRef.current = currentGlobal
     if (audioPlaying) el.play()
   }, [audioCurCh, audioPlaying])
 
   const seekAudio = useCallback((pct: number) => {
     const el = audioRef.current
     if (!el || !audioDuration) return
-    el.currentTime = pct * audioDuration
+    const targetGlobal = pct * audioDuration
+
+    // Walk known part durations to find the best starting part.
+    // Stop at the first part whose duration is unknown — onLoadedMetadata will
+    // chain forward from there using pendingSeekRef (global time).
+    let runOffset   = 0
+    let startPart   = 0
+    let startOffset = 0
+    for (let i = 0; i < audioPartsRef.current.length; i++) {
+      const dur = audioPartDursRef.current[i]
+      if (!dur) {
+        // Unknown duration — start here and let onLoadedMetadata advance if needed
+        startPart   = i
+        startOffset = runOffset
+        break
+      }
+      if (targetGlobal < runOffset + dur) {
+        // Target is within this known part
+        startPart   = i
+        startOffset = runOffset
+        break
+      }
+      runOffset  += dur
+      // Keep updating in case we exhaust all known parts
+      startPart   = i
+      startOffset = runOffset - dur  // offset at the start of part i (before its own dur)
+    }
+
+    if (startPart !== audioPartIdxRef.current) {
+      // Switch to a different part; onLoadedMetadata resolves local position
+      audioPartOffsetRef.current = startOffset
+      audioPartIdxRef.current    = startPart
+      el.src = audioPartsRef.current[startPart]
+      el.load()
+      pendingSeekRef.current = targetGlobal  // GLOBAL time — onLoadedMetadata subtracts offset
+      if (audioPlayingRef.current) el.play().catch(() => {})
+    } else {
+      // Same part — seek directly
+      el.currentTime = Math.max(0, targetGlobal - audioPartOffsetRef.current)
+      pendingSeekRef.current = null
+    }
   }, [audioDuration])
 
   // ── Web Speech API — build and start utterance ─────────────────────────────
@@ -1117,7 +1248,7 @@ export default function App() {
     const el = audioRef.current
     const ch = audioCurChRef.current
     if (!el || ch === null || el.currentTime <= 0) return
-    const t = el.currentTime
+    const t = audioPartOffsetRef.current + el.currentTime
     const newChTimes = { ...chTimesRef.current, [String(ch)]: t }
     chTimesRef.current = newChTimes
     const next: AudioState = {
@@ -1152,10 +1283,15 @@ export default function App() {
     const el = audioRef.current
     if (!el) return
     const parts = _audioParts(rawSrc)
-    audioPartsRef.current   = parts
-    audioPartIdxRef.current = 0
+    audioPartsRef.current      = parts
+    audioPartIdxRef.current    = 0
+    audioPartOffsetRef.current = 0
+    audioPartDursRef.current   = []
     el.src = parts[0]
     el.load()
+    const chTiming = audioLang === 'pl' ? chapter?.timing_pl : chapter?.timing_en
+    const totalDur = chTiming?.length ? chTiming[chTiming.length - 1].e : 0
+    setAudioDuration(totalDur || 0)
     const seekTo = Math.max(0, (s.t ?? 0) - 1)
     if (seekTo > 0) pendingSeekRef.current = seekTo
     setAudioCurCh(ch)
@@ -1190,7 +1326,8 @@ export default function App() {
     }
 
     const tick = () => {
-      const t     = audioRef.current?.currentTime ?? 0
+      // Use GLOBAL time (offset + local) so timing matches absolute timestamps in entries
+      const t     = audioPartOffsetRef.current + (audioRef.current?.currentTime ?? 0)
       const words = timingWordsRef.current
 
       // Binary search: last word with s <= t
@@ -1422,8 +1559,15 @@ export default function App() {
   const skipAudio = useCallback((secs: number) => {
     const el = audioRef.current
     if (!el) return
-    el.currentTime = Math.max(0, Math.min(el.currentTime + secs, audioDuration))
-  }, [audioDuration])
+    const globalT    = audioPartOffsetRef.current + el.currentTime
+    const newGlobal  = Math.max(0, globalT + secs)
+    const localTarget = newGlobal - audioPartOffsetRef.current
+    if (localTarget >= 0 && localTarget <= el.duration + 0.5) {
+      el.currentTime = Math.min(localTarget, el.duration)
+    } else if (audioDuration > 0) {
+      seekAudio(Math.min(newGlobal, audioDuration) / audioDuration)
+    }
+  }, [audioDuration, seekAudio])
 
   const toggleSpeech = (chapterIdx: number, lang: 'pl' | 'en') => {
     if (!window.speechSynthesis) return
@@ -1661,12 +1805,13 @@ export default function App() {
         onTimeUpdate={() => {
           const el = audioRef.current
           if (el) {
-            setAudioCurrent(el.currentTime)
+            const globalT = audioPartOffsetRef.current + el.currentTime
+            setAudioCurrent(globalT)
             const ch = audioCurChRef.current
             if (ch !== null) {
               if (posTimerRef.current) clearTimeout(posTimerRef.current)
               posTimerRef.current = setTimeout(() => {
-                const t = el.currentTime
+                const t = audioPartOffsetRef.current + el.currentTime
                 const newChTimes = { ...chTimesRef.current, [String(ch)]: t }
                 chTimesRef.current = newChTimes
                 setChTimes(newChTimes)
@@ -1682,11 +1827,39 @@ export default function App() {
           }
         }}
         onLoadedMetadata={() => {
-          setAudioDuration(audioRef.current?.duration ?? 0)
-          // Seek to restored position after metadata is available
-          if (pendingSeekRef.current !== null && audioRef.current) {
-            audioRef.current.currentTime = pendingSeekRef.current
-            pendingSeekRef.current = null
+          const el = audioRef.current
+          if (!el) return
+          const partIdx = audioPartIdxRef.current
+          audioPartDursRef.current[partIdx] = el.duration
+          // Update total duration from accumulated part lengths (if timing didn't set it already)
+          const knownTotal = audioPartDursRef.current.reduce((a, d) => a + (d || 0), 0)
+          setAudioDuration(prev => Math.max(prev, knownTotal))
+          // Smart cross-part seek: if target is beyond this part, advance automatically
+          if (pendingSeekRef.current !== null) {
+            const targetGlobal = pendingSeekRef.current  // always stored as global time
+            const localTarget  = targetGlobal - audioPartOffsetRef.current
+            if (localTarget < 0) {
+              // Overshot — seek to start of this part (shouldn't happen in normal flow)
+              el.currentTime = 0
+              pendingSeekRef.current = null
+            } else if (localTarget <= el.duration + 0.5) {
+              el.currentTime = localTarget
+              pendingSeekRef.current = null
+            } else {
+              // Target lies beyond this part — fast-forward to next part
+              audioPartDursRef.current[partIdx] = el.duration
+              audioPartOffsetRef.current += el.duration
+              const nextIdx = partIdx + 1
+              if (nextIdx < audioPartsRef.current.length) {
+                audioPartIdxRef.current = nextIdx
+                el.src = audioPartsRef.current[nextIdx]
+                el.load()
+                if (audioPlayingRef.current) el.play().catch(() => {})
+              } else {
+                el.currentTime = el.duration   // past end — clamp to last part end
+                pendingSeekRef.current = null
+              }
+            }
           }
         }}
         onPlay={() => setAudioPlaying(true)}
@@ -1699,14 +1872,19 @@ export default function App() {
           // Part advance: next split-part of same chapter
           const nextPartIdx = audioPartIdxRef.current + 1
           if (el && nextPartIdx < audioPartsRef.current.length) {
+            // Accumulate global offset for the part that just finished
+            audioPartDursRef.current[audioPartIdxRef.current] = el.duration
+            audioPartOffsetRef.current += el.duration
             audioPartIdxRef.current = nextPartIdx
             el.src = audioPartsRef.current[nextPartIdx]
             el.load()
             el.play().catch(() => {})
             return
           }
-          // Chapter advance: next chapter with audio — NO page navigation
-          audioPartIdxRef.current = 0
+          // Chapter advance: reset per-chapter part tracking
+          audioPartOffsetRef.current = 0
+          audioPartDursRef.current   = []
+          audioPartIdxRef.current    = 0
           const curCh = audioCurChRef.current
           // Clear saved time for the chapter that just finished
           if (curCh !== null) {
@@ -1897,10 +2075,10 @@ export default function App() {
                 </button>
               )}
 
-              {/* Prev chapter */}
+              {/* Skip back 5 s */}
               {audioMode === 'mp3' && (
-                <button className="sf-audio-skip-btn" onClick={goPrev} title="Poprzedni rozdział">
-                  <Icon.PrevChapter />
+                <button className="sf-audio-skip-btn" onClick={() => skipAudio(-5)} title="-5 s">
+                  <Icon.Skip5Back />
                 </button>
               )}
 
@@ -1909,20 +2087,20 @@ export default function App() {
                 {isPlaying ? <Icon.Pause /> : <Icon.Play />}
               </button>
 
-              {/* Next chapter */}
+              {/* Skip forward 5 s */}
               {audioMode === 'mp3' && (
-                <button className="sf-audio-skip-btn" onClick={goNext} title="Następny rozdział">
-                  <Icon.NextChapter />
+                <button className="sf-audio-skip-btn" onClick={() => skipAudio(5)} title="+5 s">
+                  <Icon.Skip5Fwd />
                 </button>
               )}
 
-              {/* Word-highlight toggle */}
+              {/* Word-highlight toggle — icon changes when sync is active */}
               {(hasTiming || audioMode === 'speech') && (
                 <button
                   className={`sf-audio-hl-btn${highlightMode ? ' active' : ''}`}
                   onClick={() => setHighlightMode(m => !m)}
-                  title={highlightMode ? 'Wyłącz śledzenie' : 'Śledź tekst'}
-                ><Icon.Highlight /></button>
+                  title={highlightMode ? 'Wyłącz śledzenie słów' : 'Śledź słowa'}
+                >{highlightMode ? <Icon.HighlightOn /> : <Icon.Highlight />}</button>
               )}
 
               {/* Seek bar */}

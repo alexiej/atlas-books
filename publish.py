@@ -188,6 +188,9 @@ def load_book_from_dest(book_id: str) -> dict:
                     audio = entry.get("audio")
                     if audio:
                         ch[f"audio_{lang}"] = audio
+                    seek_to = entry.get("seek_to")
+                    if seek_to is not None:
+                        ch[f"seek_to_{lang}"] = seek_to
                     timing = entry.get("timing")
                     if timing:
                         ch[f"timing_{lang}"] = timing

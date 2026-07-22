@@ -5,27 +5,27 @@ analyze-tts.py — Word-level timing alignment for Atlas Books
 Pipeline position:
   generate.py  →  [generate-tts.py]  →  analyze-tts.py  →  publish.py
 
-Reads MP3 files from books-dest/<id>/, transcribes them with Whisper
-(word-level timestamps), aligns the transcript to book.md text, then
-writes timing data into books-dest/<id>/tts-audio-<lang>.json.
-
-After running analyze-tts.py, run publish.py to embed the timing into
-the final HTML. The viewer then highlights the currently spoken word
-during playback and (optionally) follows the audio by turning pages.
-
-Works for both:
-  • TTS-generated audio (from generate-tts.py) — for re-analysis / fixing
-  • External / human-narrated audio (e.g. Wolne Lektury MP3s)
+Two-stage workflow:
+  Stage 1 (transcribe): MP3s → raw Whisper words → tts-transcript-{lang}.json
+  Stage 2 (align):      tts-transcript-{lang}.json + book.md → tts-audio-{lang}.json
 
 Usage:
-  python analyze-tts.py homer-odyseja
+  python analyze-tts.py homer-odyseja                  # both stages (default)
+  python analyze-tts.py homer-odyseja --stage transcribe  # stage 1 only (Whisper → transcript)
+  python analyze-tts.py homer-odyseja --stage align       # stage 2 only (transcript → timing)
   python analyze-tts.py homer-odyseja --lang pl
   python analyze-tts.py homer-odyseja --chapters 1-5
-  python analyze-tts.py homer-odyseja --chapters 3,7,12
   python analyze-tts.py homer-odyseja --model large-v3
-  python analyze-tts.py homer-odyseja --replace          # re-analyze done chapters
-  python analyze-tts.py homer-odyseja --list             # show chapter/audio status
+  python analyze-tts.py homer-odyseja --replace        # re-run completed chapters
+  python analyze-tts.py homer-odyseja --list           # show chapter/audio/transcript status
   python analyze-tts.py --list-models
+
+Fixing wrong alignment without re-transcribing:
+  1. python analyze-tts.py book-id --stage transcribe --replace
+     → saves raw Whisper words to tts-transcript-{lang}.json
+  2. edit tts-transcript-{lang}.json if needed (fix chapter key mapping)
+  3. python analyze-tts.py book-id --stage align --replace
+     → re-aligns using saved transcript; fast, no Whisper needed
 
 Whisper models (faster-whisper):
   tiny        ~1 min/hour audio  — rough quality
@@ -312,6 +312,195 @@ def _norm(w: str) -> str:
     """Normalize word for comparison: lowercase + strip punctuation."""
     return _NORM_RE.sub("", w.lower())
 
+_DIAC_TABLE = str.maketrans(
+    "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ",
+    "acelnoszzACELNOSZZ",
+)
+
+def _diac_norm(w: str) -> str:
+    """Normalize + strip Polish diacritics — for fuzzy matching with noisy ASR."""
+    return _norm(w.translate(_DIAC_TABLE))
+
+
+def build_full_ref_words(chapters: list[dict], lang: str) -> list[dict]:
+    """
+    Build flat reference word list for the entire book.
+    Each word carries chapter_id so smart_align_book can assign timing to chapters.
+    """
+    all_words: list[dict] = []
+    for ch in chapters:
+        ch_id = ch.get("id", "")
+        for w in build_ref_words(ch, lang):
+            w = dict(w)
+            w["chapter_id"] = ch_id
+            all_words.append(w)
+    return all_words
+
+
+def scan_audio_groups(dest: Path, book_id: str) -> dict[str, list[Path]]:
+    """
+    Scan dest/ for MP3 files and group by chapter.
+
+    Two modes:
+    • Per-chapter files  — names contain ch{N} (e.g. *-ch1-part000.mp3)
+                           → {ch1: [...], ch2: [...], …}
+    • Single / whole-book file — no ch{N} in any filename
+                           → {"ch0": [all mp3s sorted by name]}
+                           The aligner will find seek_to per chapter automatically.
+    """
+    groups: dict[str, list[Path]] = {}
+    for mp3 in sorted(dest.glob("*.mp3")):
+        m = re.search(r'(?:^|-)ch(\d+)', mp3.stem)
+        if m:
+            key = f"ch{m.group(1)}"
+            groups.setdefault(key, []).append(mp3)
+    if groups:
+        return dict(sorted(groups.items(), key=lambda x: int(x[0][2:])))
+
+    # No ch{N} files — treat all MP3s as a single whole-book group
+    all_mp3 = sorted(dest.glob("*.mp3"))
+    if all_mp3:
+        info(f"No ch{{N}} files — treating {len(all_mp3)} MP3(s) as single group (whole-book audio)")
+        return {"ch0": all_mp3}
+    return {}
+
+
+def smart_align_book(
+    all_whisper: list[dict],
+    all_ref: list[dict],
+    min_density: float = 0.05,
+) -> tuple[dict[int, int], set[str], list[dict]]:
+    """
+    Whole-book fuzzy alignment: Whisper words against the full book reference.
+
+    Two-phase strategy:
+      Phase 1 — exact match after normalization (lowercase, strip punctuation)
+      Phase 2 — diacritic-insensitive match for words missed in phase 1
+                 (handles tiny-model errors like 'panstwo' → 'państwo')
+
+    After both phases, global monotonicity is enforced (bk_idx AND wh_idx both
+    must be strictly increasing) to prevent phase-2 spurious matches from creating
+    backwards timestamps across chapter boundaries.
+
+    Only chapters where direct_matches / total_ref_words ≥ min_density are
+    considered "covered" and get timing/audio assigned. This prevents chapters
+    with zero real audio from receiving spurious timing via interpolation.
+
+    Returns:
+      bk2wh   — {book_word_idx: whisper_word_idx} for direct matches
+      covered — set of chapter_id strings with sufficient match density
+      timing  — timing list for covered chapters only (includes 'chapter_id')
+    """
+    if not all_whisper or not all_ref:
+        return {}, set(), []
+
+    wh_norm   = [_norm(w["word"])       for w in all_whisper]
+    wh_nodiac = [_diac_norm(w["word"])  for w in all_whisper]
+    bk_norm   = [_norm(w["w"])          for w in all_ref]
+    bk_nodiac = [_diac_norm(w["w"])     for w in all_ref]
+
+    # ── Phase 1: exact normalized match ───────────────────────────────────────
+    m1 = difflib.SequenceMatcher(None, bk_norm, wh_norm, autojunk=False)
+    bk2wh: dict[int, int] = {}
+    for bk_s, wh_s, length in m1.get_matching_blocks():
+        if length == 0:
+            continue
+        for i in range(length):
+            if bk_norm[bk_s + i] and wh_norm[wh_s + i]:
+                bk2wh[bk_s + i] = wh_s + i
+
+    # ── Phase 2: diacritic-stripped match on remainder ─────────────────────────
+    used_wh          = set(bk2wh.values())
+    unmatched_bk_idx = [i for i in range(len(all_ref))     if i not in bk2wh     and bk_nodiac[i]]
+    unmatched_wh_idx = [j for j in range(len(all_whisper)) if j not in used_wh   and wh_nodiac[j]]
+
+    if unmatched_bk_idx and unmatched_wh_idx:
+        sub_bk = [bk_nodiac[i] for i in unmatched_bk_idx]
+        sub_wh = [wh_nodiac[j] for j in unmatched_wh_idx]
+        m2 = difflib.SequenceMatcher(None, sub_bk, sub_wh, autojunk=False)
+        for b_s, w_s, length in m2.get_matching_blocks():
+            if length == 0:
+                continue
+            for k in range(length):
+                orig_bk = unmatched_bk_idx[b_s + k]
+                orig_wh = unmatched_wh_idx[w_s + k]
+                if orig_bk not in bk2wh:
+                    bk2wh[orig_bk] = orig_wh
+
+    # ── Global monotonicity — enforce bk_idx AND wh_idx strictly increasing ───
+    # Phase 2 can create backwards whisper-index assignments across chapter
+    # boundaries (e.g. ch2 word matched to wh[500] while ch1 word → wh[3000]).
+    bk2wh_clean: dict[int, int] = {}
+    last_wh = -1
+    for bk_idx, wh_idx in sorted(bk2wh.items()):
+        if wh_idx > last_wh:
+            bk2wh_clean[bk_idx] = wh_idx
+            last_wh = wh_idx
+    bk2wh = bk2wh_clean
+
+    # ── Per-chapter direct match density → which chapters are "covered" ────────
+    ch_direct: dict[str, int] = {}
+    ch_total:  dict[str, int] = {}
+    for bi, bw in enumerate(all_ref):
+        ch_id = bw.get("chapter_id", "")
+        ch_total[ch_id]  = ch_total.get(ch_id, 0) + 1
+        if bi in bk2wh:
+            ch_direct[ch_id] = ch_direct.get(ch_id, 0) + 1
+
+    covered: set[str] = {
+        ch_id
+        for ch_id, total in ch_total.items()
+        if ch_direct.get(ch_id, 0) / max(1, total) >= min_density
+    }
+
+    # ── Build timing — covered chapters only; interpolate from covered anchors ─
+    # Using only covered-chapter matches as anchors prevents cross-chapter
+    # interpolation from pulling uncovered chapter words into wrong time ranges.
+    covered_sorted = sorted(bi for bi in bk2wh if all_ref[bi].get("chapter_id") in covered)
+
+    result: list[dict] = []
+    for bi, bw in enumerate(all_ref):
+        ch_id = bw.get("chapter_id", "")
+        if ch_id not in covered:
+            continue   # skip uncovered chapters entirely
+
+        entry = {k: v for k, v in bw.items()}   # includes chapter_id
+
+        if bi in bk2wh:
+            whi = bk2wh[bi]
+            ww  = all_whisper[whi]
+            entry["s"] = round(ww["start"], 3)
+            entry["e"] = round(ww["end"],   3)
+        else:
+            prev_bi = max((k for k in covered_sorted if k < bi), default=None)
+            next_bi = min((k for k in covered_sorted if k > bi), default=None)
+
+            if prev_bi is not None and next_bi is not None:
+                t0     = all_whisper[bk2wh[prev_bi]]["end"]
+                t1     = all_whisper[bk2wh[next_bi]]["start"]
+                span   = max(0.0, t1 - t0)
+                steps  = next_bi - prev_bi
+                step_t = span / steps if steps > 0 else 0.05
+                frac   = bi - prev_bi
+                entry["s"] = round(t0 + frac * step_t, 3)
+                entry["e"] = round(t0 + (frac + 1) * step_t, 3)
+            elif prev_bi is not None:
+                t0 = all_whisper[bk2wh[prev_bi]]["end"]
+                d  = bi - prev_bi
+                entry["s"] = round(t0 + d * 0.07, 3)
+                entry["e"] = round(t0 + (d + 1) * 0.07, 3)
+            elif next_bi is not None:
+                t1 = all_whisper[bk2wh[next_bi]]["start"]
+                d  = next_bi - bi
+                entry["s"] = round(max(0.0, t1 - d * 0.07), 3)
+                entry["e"] = round(max(0.0, t1 - (d - 1) * 0.07), 3)
+            else:
+                continue   # no anchor at all — omit word
+
+        result.append(entry)
+
+    return bk2wh, covered, result
+
 
 def align_to_book(whisper_words: list[dict], ref_words: list[dict]) -> list[dict]:
     """
@@ -418,8 +607,7 @@ def get_chapter_duration(entry: dict, dest: Path) -> float:
     return sum(get_mp3_duration(f) for f in files if f.exists())
 
 
-def analyze_chapter(
-    chapter: dict,
+def transcribe_chapter(
     entry: dict,
     dest: Path,
     model: object,
@@ -427,46 +615,67 @@ def analyze_chapter(
     live: LiveProgress | None = None,
 ) -> list[dict] | None:
     """
-    Transcribe + align one chapter.  live is the LiveProgress display.
-    Returns timing list or None on failure.
+    Stage 1: transcribe MP3 files for one chapter using Whisper.
+    Returns list of {word, start, end} dicts or None on failure.
     """
-    # Resolve MP3 file(s)
     audio = entry.get("audio")
     if not audio:
         return None
-    if isinstance(audio, str):
-        mp3_files = [dest / audio]
-    else:
-        mp3_files = [dest / f for f in audio]
-
+    mp3_files = [dest / audio] if isinstance(audio, str) else [dest / f for f in audio]
     missing = [f for f in mp3_files if not f.exists()]
     if missing:
         err(f"MP3 not found: {', '.join(f.name for f in missing)}")
         return None
+    cb = live.update if live is not None else None
+    words = transcribe_parts(mp3_files, model, language=lang, on_progress=cb)
+    if not words:
+        warn("Whisper returned no words")
+        return None
+    return words
 
-    # Build reference word list
+
+def align_chapter(
+    chapter: dict,
+    whisper_words: list[dict],
+    lang: str,
+) -> tuple[list[dict], str] | None:
+    """
+    Stage 2: align whisper words to book.md reference text.
+    Returns (timing, stats_string) or None on failure.
+    """
     ref_words = build_ref_words(chapter, lang)
     if not ref_words:
         warn("No text in chapter — skipping")
         return None
-
-    # Transcribe with live progress
-    cb = live.update if live is not None else None
-    whisper_words = transcribe_parts(mp3_files, model, language=lang, on_progress=cb)
-
-    if not whisper_words:
-        warn("Whisper returned no words")
-        return None
-
-    # Align
     timing = align_to_book(whisper_words, ref_words)
-    return timing, alignment_stats(ref_words, timing, whisper_words)  # type: ignore[return-value]
+    return timing, alignment_stats(ref_words, timing, whisper_words)
+
+
+def analyze_chapter(
+    chapter: dict,
+    entry: dict,
+    dest: Path,
+    model: object,
+    lang: str,
+    live: LiveProgress | None = None,
+    whisper_words: list[dict] | None = None,
+) -> tuple[list[dict], str] | None:
+    """
+    Full pipeline: transcribe (unless whisper_words provided) + align.
+    Returns (timing, stats) or None on failure.
+    """
+    if whisper_words is None:
+        whisper_words = transcribe_chapter(entry, dest, model, lang, live)
+        if whisper_words is None:
+            return None
+    return align_chapter(chapter, whisper_words, lang)
 
 # ── List chapters ──────────────────────────────────────────────────────────────
 def list_chapters(book_id: str, lang: str) -> None:
     dest = BOOK_DEST / book_id
-    tts_path = dest / f"tts-audio-{lang}.json"
-    book_md  = dest / "book.md"
+    tts_path    = dest / f"tts-audio-{lang}.json"
+    tr_path     = dest / f"tts-transcript-{lang}.json"
+    book_md     = dest / "book.md"
 
     if not book_md.exists():
         err(f"books-dest/{book_id}/book.md not found — run generate.py first")
@@ -477,31 +686,48 @@ def list_chapters(book_id: str, lang: str) -> None:
 
     chapters = md_to_chapters(book_md)
     tts_map  = json.loads(tts_path.read_text(encoding="utf-8"))
+    tr_map: dict = {}
+    if tr_path.exists():
+        try:
+            tr_map = json.loads(tr_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
 
     print(f"\n  {bold(gold(book_id))}  ·  {lang.upper()}  ·  {len(chapters)} chapters\n")
+    print(f"  {'#':>3}  {'chapter id':<40}  {'timing':<26}  transcript")
+    print(f"  {'-'*3}  {'-'*40}  {'-'*26}  ----------")
     for i, ch in enumerate(chapters):
         ch_id   = ch.get("id", f"ch{i+1}")
-        title   = ch.get("title", ch_id)
         entry   = tts_map.get(ch_id, {})
         audio   = entry.get("audio")
         timing  = entry.get("timing")
+        tr_entry = tr_map.get(ch_id, {})
+        tr_words = tr_entry.get("words")
 
         if not audio:
-            status = gray("no audio")
+            t_status = gray("no audio")
         elif timing:
-            wc = len(timing)
-            status = green(f"✓ timing  {wc} words")
+            t_status = green(f"✓ {len(timing)} words")
         else:
-            status = yellow("· audio only (no timing)")
+            t_status = yellow("· no timing")
+
+        if tr_words:
+            tr_status = green(f"✓ {len(tr_words)} words")
+        elif audio:
+            tr_status = yellow("· not saved")
+        else:
+            tr_status = gray("—")
 
         mp3_label = ""
         if audio:
-            if isinstance(audio, list):
-                mp3_label = gray(f"  {len(audio)} parts")
-            else:
-                mp3_label = gray(f"  {audio}")
+            mp3_label = gray(f"  [{len(audio) if isinstance(audio, list) else 1} mp3]")
 
-        print(f"  {dim(str(i+1).rjust(3))}  {ch_id:<40}  {status}{mp3_label}")
+        print(f"  {dim(str(i+1).rjust(3))}  {ch_id:<40}  {t_status:<35}  {tr_status}{mp3_label}")
+    print()
+    if tr_path.exists():
+        info(f"Transcript: {tr_path.relative_to(PROJECT_DIR)}")
+    else:
+        info(f"No transcript file yet — run: python analyze-tts.py {book_id} --stage transcribe")
     print()
 
 # ── Main analyze function ──────────────────────────────────────────────────────
@@ -512,142 +738,328 @@ def analyze_book(
     model_name: str = "medium",
     replace: bool = False,
     verbose: bool = False,
+    stage: str = "both",   # "transcribe" | "align" | "both"
 ) -> bool:
     dest = BOOK_DEST / book_id
     if not dest.exists():
         err(f"books-dest/{book_id}/ not found — run: python generate.py {book_id}")
         return False
 
-    book_md  = dest / "book.md"
-    tts_path = dest / f"tts-audio-{lang}.json"
+    book_md    = dest / "book.md"
+    tts_path   = dest / f"tts-audio-{lang}.json"
+    tr_path    = dest / f"tts-transcript-{lang}.json"
+    align_path = dest / f"tts-transcript-align-{lang}.json"
 
     if not book_md.exists():
         err(f"book.md missing in books-dest/{book_id}/ — run generate.py first")
         return False
-    if not tts_path.exists():
-        err(f"tts-audio-{lang}.json missing — run generate.py first or ensure audio is mapped")
-        return False
 
-    # Load book structure
-    step("Loading book structure")
-    chapters   = md_to_chapters(book_md)
-    ch_by_id   = {ch.get("id", f"ch{i+1}"): ch for i, ch in enumerate(chapters)}
-    ordered_ids = [ch.get("id", f"ch{i+1}") for i, ch in enumerate(chapters)]
-    ok(f"{len(chapters)} chapters from book.md")
+    do_transcribe = stage in ("transcribe", "both")
+    do_align      = stage in ("align", "both")
 
-    # Load existing TTS map
-    tts_map: dict[str, dict] = json.loads(tts_path.read_text(encoding="utf-8"))
+    wall_start = time.monotonic()
 
-    # Determine which chapters to analyze
-    audio_ids = [ch_id for ch_id in ordered_ids if tts_map.get(ch_id, {}).get("audio")]
-    if not audio_ids:
-        err("No chapters with audio found in tts-audio map")
-        return False
+    # ══════════════════════════════════════════════════════════════════════════
+    # STAGE 1 — TRANSCRIBE: scan MP3 files by filename, build transcript
+    # ══════════════════════════════════════════════════════════════════════════
+    if do_transcribe:
+        # Scan directory for {book_id}-ch{N}[-part*].mp3
+        audio_groups = scan_audio_groups(dest, book_id)
+        if not audio_groups:
+            err(f"No MP3 files found in books-dest/{book_id}/ — run generate.py first")
+            return False
 
-    if chapters_spec:
-        target_ids = parse_chapters_spec(chapters_spec, audio_ids)
-    else:
-        target_ids = audio_ids
+        # Load existing transcript (ch-indexed only — discard old chapter-slug keys)
+        tr_map: dict[str, dict] = {}
+        if tr_path.exists():
+            try:
+                raw = json.loads(tr_path.read_text(encoding="utf-8"))
+                tr_map = {k: v for k, v in raw.items() if re.match(r"ch\d+$", k)}
+                old_skipped = len(raw) - len(tr_map)
+                if old_skipped:
+                    info(f"Discarded {old_skipped} non-ch{{N}} entries from old transcript")
+            except Exception:
+                warn(f"Could not parse {tr_path.name} — starting fresh")
 
-    # Filter out already done (unless --replace)
-    if not replace:
-        pending = [ch_id for ch_id in target_ids
-                   if not tts_map.get(ch_id, {}).get("timing")]
-        skipped = len(target_ids) - len(pending)
-        if skipped:
-            info(f"Skipping {skipped} already-analyzed chapters (use --replace to redo)")
-        target_ids = pending
+        # Filter groups to process
+        if chapters_spec:
+            # chapters_spec here refers to ch-group numbers: "1-3" → ch1, ch2, ch3
+            nums   = parse_chapters_spec(chapters_spec, list(audio_groups.keys()))
+            groups = {k: v for k, v in audio_groups.items() if k in set(nums)}
+        else:
+            groups = audio_groups
 
-    if not target_ids:
-        ok("Nothing to analyze — all chapters already have timing")
-        return True
+        if not replace:
+            pending_groups = {k: v for k, v in groups.items()
+                              if not tr_map.get(k, {}).get("words")}
+            skipped_n = len(groups) - len(pending_groups)
+            if skipped_n:
+                info(f"Skipping {skipped_n} already-transcribed groups (use --replace to redo)")
+        else:
+            pending_groups = groups
 
-    # Load Whisper model
-    step(f"Loading Whisper model: {bold(model_name)}")
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        err("faster-whisper not installed — run: pip install faster-whisper")
-        return False
+        if pending_groups:
+            # ── Load Whisper model ────────────────────────────────────────────
+            step(f"Loading Whisper model: {bold(model_name)}")
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError:
+                err("faster-whisper not installed — run: pip install faster-whisper")
+                return False
+            try:
+                import torch
+                device  = "cuda" if torch.cuda.is_available() else "cpu"
+                compute = "float16" if device == "cuda" else "int8"
+            except ImportError:
+                device, compute = "cpu", "int8"
+            info(f"device={device}  compute_type={compute}")
+            try:
+                model = WhisperModel(model_name, device=device, compute_type=compute)
+            except Exception as e:
+                err(f"Failed to load model: {e}"); return False
+            ok("Model ready")
 
-    try:
-        # Use GPU if available, else CPU with int8 quantization
-        import torch
-        device      = "cuda" if torch.cuda.is_available() else "cpu"
-        compute     = "float16" if device == "cuda" else "int8"
-    except ImportError:
-        device, compute = "cpu", "int8"
+            total_audio = sum(
+                sum(get_mp3_duration(f) for f in files)
+                for files in pending_groups.values()
+            )
+            step(f"Transcribing {len(pending_groups)} audio groups  ·  lang={lang}"
+                 + (f"  ·  {_fmt_dur(total_audio)} audio" if total_audio > 0 else ""))
+            live = LiveProgress(len(pending_groups), total_audio)
+            done_t, failed_t = 0, 0
 
-    info(f"device={device}  compute_type={compute}")
-    try:
-        model = WhisperModel(model_name, device=device, compute_type=compute)
-    except Exception as e:
-        err(f"Failed to load model: {e}")
-        return False
-    ok(f"Model ready")
+            for i, (ch_key, mp3_files) in enumerate(pending_groups.items()):
+                if _stop:
+                    warn("Stopped by user — transcript saved")
+                    break
+                ch_dur = sum(get_mp3_duration(f) for f in mp3_files)
+                live.begin_chapter(i + 1, ch_key, ch_dur)
+                try:
+                    cb    = live.update
+                    words = transcribe_parts(mp3_files, model, language=lang, on_progress=cb)
+                    if not words:
+                        warn(f"Whisper returned no words for {ch_key}")
+                        live.fail_chapter(ch_dur)
+                        failed_t += 1
+                        continue
+                    tr_map[ch_key] = {
+                        "audio": [f.name for f in mp3_files],
+                        "words": words,
+                    }
+                    tr_path.write_text(
+                        json.dumps(tr_map, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    live.finish_chapter(ch_dur, f"{len(words)} words")
+                    done_t += 1
+                except Exception as e:
+                    live.fail_chapter(ch_dur)
+                    err(f"Error transcribing {ch_key}: {e}")
+                    import traceback; traceback.print_exc()
+                    failed_t += 1
 
-    # ── Pre-compute chapter durations for ETA ─────────────────────────────────
-    ch_durations = {
-        ch_id: get_chapter_duration(tts_map[ch_id], dest)
-        for ch_id in target_ids
-    }
-    total_audio = sum(ch_durations.values())
+            total_time = time.monotonic() - wall_start
+            print()
+            if done_t:
+                ok(f"{done_t}/{len(pending_groups)} groups transcribed  ·  {_fmt_secs(total_time)}")
+            if failed_t:
+                warn(f"{failed_t} groups failed")
+            ok(f"Transcript → {tr_path.relative_to(PROJECT_DIR)}")
+        else:
+            ok("All audio groups already transcribed")
 
-    # ── Live progress + analyze ────────────────────────────────────────────────
-    step(f"Analyzing {len(target_ids)} chapters  ·  lang={lang}"
-         + (f"  ·  {_fmt_dur(total_audio)} audio total" if total_audio > 0 else ""))
+        if not do_align:
+            info(f"Next: python analyze-tts.py {book_id} --stage align")
+            print()
+            return True
 
-    live      = LiveProgress(len(target_ids), total_audio)
-    wall_start= time.monotonic()
-    done      = 0
-    failed    = 0
-
-    for i, ch_id in enumerate(target_ids):
-        if _stop:
-            warn("Stopped by user — progress saved")
-            break
-
-        chapter = ch_by_id.get(ch_id)
-        if not chapter:
-            warn(f"Chapter '{ch_id}' not found in book.md — skipping")
-            continue
-
-        entry    = tts_map.get(ch_id, {})
-        title    = chapter.get("title", ch_id)
-        ch_dur   = ch_durations.get(ch_id, 0.0)
-        live.begin_chapter(i + 1, title, ch_dur)
-
+    # ══════════════════════════════════════════════════════════════════════════
+    # STAGE 2 — ALIGN: whole-book fuzzy matching → tts-transcript-align + tts-audio
+    # ══════════════════════════════════════════════════════════════════════════
+    if do_align:
+        # Load transcript
+        if not tr_path.exists():
+            err(f"tts-transcript-{lang}.json not found — run --stage transcribe first")
+            return False
         try:
-            result = analyze_chapter(chapter, entry, dest, model, lang, live)
-            if result is None:
-                live.fail_chapter(ch_dur)
-                failed += 1
-            else:
-                timing, stats = result
-                live.finish_chapter(ch_dur, stats)
-                tts_map[ch_id]["timing"] = timing
-                done += 1
-                # Save after each chapter (crash-safe)
-                tts_path.write_text(
-                    json.dumps(tts_map, ensure_ascii=False, indent=2),
-                    encoding="utf-8"
-                )
+            raw_tr = json.loads(tr_path.read_text(encoding="utf-8"))
+            # Accept only ch{N}-keyed entries; discard old chapter-slug keys
+            tr_map = {k: v for k, v in raw_tr.items() if re.match(r"ch\d+$", k)}
+            stale = len(raw_tr) - len(tr_map)
+            if stale:
+                info(f"Ignoring {stale} non-ch{{N}} entries in transcript (old format)")
         except Exception as e:
-            live.fail_chapter(ch_dur)
-            err(f"Error: {e}")
-            import traceback; traceback.print_exc()
-            failed += 1
+            err(f"Cannot parse tts-transcript-{lang}.json: {e}"); return False
 
-    # ── Summary ────────────────────────────────────────────────────────────────
-    total_time = time.monotonic() - wall_start
-    print()
-    if done:
-        ok(f"{done}/{len(target_ids)} chapters done  ·  {_fmt_secs(total_time)} total")
-    if failed:
-        warn(f"{failed} chapters failed")
-    ok(f"Saved → {tts_path.relative_to(PROJECT_DIR)}")
-    info(f"Next: python publish.py {book_id}")
-    print()
+        # Sort ch-keys by number (ch0 < ch1 < ch2 …)
+        ch_keys = sorted(
+            (k for k in tr_map if tr_map[k].get("words")),
+            key=lambda k: int(re.search(r"\d+", k).group()),  # safe: re.match above guarantees digits
+        )
+        if not ch_keys:
+            err("No transcribed groups in transcript file — run --stage transcribe first")
+            return False
+
+        # Build flat whisper list + track source ranges
+        all_whisper: list[dict] = []
+        ch_word_ranges: dict[str, tuple[int, int]] = {}
+        for ck in ch_keys:
+            start = len(all_whisper)
+            all_whisper.extend(tr_map[ck]["words"])
+            ch_word_ranges[ck] = (start, len(all_whisper))
+
+        # Load book
+        step("Loading book structure")
+        chapters    = md_to_chapters(book_md)
+        ok(f"{len(chapters)} chapters from book.md")
+
+        # Build flat book reference (all chapters, chapter_id attached)
+        step(f"Smart whole-book alignment  ·  lang={lang}  ·  "
+             f"{len(all_whisper)} whisper words  ·  {len(chapters)} chapters")
+        all_ref = build_full_ref_words(chapters, lang)
+        info(f"Book reference: {len(all_ref)} words total")
+
+        # Run smart alignment (2-phase: exact + diacritic-insensitive)
+        bk2wh, covered, all_timing = smart_align_book(all_whisper, all_ref)
+
+        # ── Detect whole-book mode ────────────────────────────────────────────
+        # Single audio group = one continuous recording covering all chapters.
+        # In this mode every chapter gets audio + seek_to; timing is optional.
+        whole_book_mode = len(ch_keys) == 1
+        if whole_book_mode:
+            info("Whole-book mode: all chapters will receive audio + seek_to")
+
+        # ── Audio assignment ───────────────────────────────────────────────────
+        # Per-chapter mode: only covered chapters vote for their audio group.
+        # Whole-book mode:  all chapters with any match vote; gaps filled with ch0.
+        wh_to_chkey: dict[int, str] = {}
+        for ck, (start, end) in ch_word_ranges.items():
+            for j in range(start, end):
+                wh_to_chkey[j] = ck
+
+        ch_audio_votes: dict[str, dict[str, int]] = {}
+        for bk_idx, wh_idx in bk2wh.items():
+            ch_id = all_ref[bk_idx].get("chapter_id", "")
+            if ch_id not in covered and not whole_book_mode:
+                continue   # per-chapter: only covered chapters get audio
+            ck = wh_to_chkey.get(wh_idx, "")
+            if ch_id and ck:
+                ch_audio_votes.setdefault(ch_id, {})
+                ch_audio_votes[ch_id][ck] = ch_audio_votes[ch_id].get(ck, 0) + 1
+
+        chapter_to_audio: dict[str, list[str]] = {}
+        for ch_id, votes in ch_audio_votes.items():
+            best_ck = max(votes, key=votes.__getitem__)
+            chapter_to_audio[ch_id] = tr_map[best_ck].get("audio", [])
+
+        if whole_book_mode:
+            # Every chapter shares the same single audio group; fill any gaps
+            whole_audio = tr_map[ch_keys[0]].get("audio", [])
+            for ch in chapters:
+                ch_id = ch.get("id", "")
+                if ch_id and ch_id not in chapter_to_audio:
+                    chapter_to_audio[ch_id] = whole_audio
+
+        # ── Compute seek_to from ALL matched words (not just covered chapters) ─
+        # Use bk2wh directly so even below-threshold chapters get a seek_to if
+        # at least one word matched.  In whole-book mode this is essential.
+        ch_seek_to: dict[str, float] = {}
+        for bk_idx in sorted(bk2wh.keys()):
+            ch_id = all_ref[bk_idx].get("chapter_id", "")
+            if ch_id and ch_id not in ch_seek_to:
+                whi = bk2wh[bk_idx]
+                ch_seek_to[ch_id] = round(all_whisper[whi]["start"], 3)
+
+        # ── Group timing by chapter_id (covered chapters only) ────────────────
+        ch_timing: dict[str, list[dict]] = {}
+        for entry in all_timing:
+            ch_id = entry.pop("chapter_id", "")
+            ch_timing.setdefault(ch_id, []).append(entry)
+
+        # ── Coverage report ────────────────────────────────────────────────────
+        matched_bk  = len(bk2wh)
+        total_ref   = len(all_ref)
+        total_wh    = len(all_whisper)
+        book_cov    = matched_bk / total_ref * 100 if total_ref else 0
+        wh_starts   = {round(w["start"], 3) for w in all_whisper}
+        direct      = sum(1 for t in all_timing if t.get("s") in wh_starts)
+        interp      = len(all_timing) - direct
+        ok(f"Alignment: {book_cov:.0f}% coverage  "
+           f"direct {direct}  interpolated {interp}  "
+           f"/ whisper {total_wh}  ref {total_ref}")
+        info(f"Covered chapters ({len(covered)}): {', '.join(sorted(covered))}")
+
+        # ── Save tts-transcript-align-{lang}.json ─────────────────────────────
+        # In per-chapter mode: only covered chapters are included.
+        # In whole-book mode:  all chapters with an audio assignment are included
+        #   (timing is still only for covered chapters; seek_to for any matched).
+        align_out: dict[str, dict] = {}
+        for ch in chapters:
+            ch_id = ch.get("id", "")
+            audio   = chapter_to_audio.get(ch_id)
+            if not audio:
+                continue  # no audio → skip entirely
+            if not whole_book_mode and ch_id not in covered:
+                continue  # per-chapter: only covered chapters in output
+            timing  = ch_timing.get(ch_id, [])
+            seek_to = ch_seek_to.get(ch_id)
+            out_entry: dict = {"audio": audio}
+            if timing:
+                out_entry["timing"] = timing
+            if seek_to is not None:
+                out_entry["seek_to"] = seek_to
+            align_out[ch_id] = out_entry
+        align_path.write_text(
+            json.dumps(align_out, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        ok(f"Align map  → {align_path.relative_to(PROJECT_DIR)}")
+
+        # ── Update tts-audio-{lang}.json ──────────────────────────────────────
+        # Load existing (or start fresh) and replace with correct assignments
+        tts_map: dict[str, dict] = {}
+        if tts_path.exists():
+            try:
+                tts_map = json.loads(tts_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        # Remove old wrong-chapter entries not in current book
+        valid_ids = {ch.get("id", "") for ch in chapters}
+        for k in list(tts_map.keys()):
+            if k not in valid_ids:
+                del tts_map[k]
+        # Write correct entries — only covered chapters
+        for ch_id, data in align_out.items():
+            timing  = data.get("timing", [])
+            audio   = data.get("audio")
+            seek_to = data.get("seek_to")
+            tts_entry: dict = {}
+            if audio:
+                tts_entry["audio"] = audio
+            if seek_to is not None:
+                tts_entry["seek_to"] = seek_to
+            if timing:
+                tts_entry["timing"] = timing
+            if tts_entry:
+                tts_map[ch_id] = tts_entry
+            else:
+                tts_map.pop(ch_id, None)
+        # Remove chapters that are no longer in align_out.
+        # In whole-book mode we keep existing entries that still have valid audio
+        # (align_out already includes all chapters with audio, so this mainly
+        # cleans up per-chapter mode orphans).
+        for ch_id in list(tts_map.keys()):
+            if ch_id not in align_out and ch_id in valid_ids:
+                if not whole_book_mode:
+                    tts_map.pop(ch_id, None)
+        tts_path.write_text(
+            json.dumps(tts_map, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        ok(f"Audio map  → {tts_path.relative_to(PROJECT_DIR)}")
+
+        total_time = time.monotonic() - wall_start
+        info(f"Total time: {_fmt_secs(total_time)}")
+        info(f"Next: python publish.py {book_id}")
+        print()
+
     return True
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -661,14 +1073,17 @@ def main() -> None:
     p.add_argument("book_id", nargs="?", help="Book ID (directory name in books-dest/)")
     p.add_argument("--lang",     default="pl",     metavar="LANG",
                    help="Language code: pl, en  (default: pl)")
+    p.add_argument("--stage",    default="both",   metavar="STAGE",
+                   choices=["transcribe", "align", "both"],
+                   help="transcribe: MP3→transcript only  |  align: transcript→timing only  |  both (default)")
     p.add_argument("--chapters", default="",       metavar="SPEC",
                    help="Chapter range: '1-5', '3,7,12', 'all'  (default: all pending)")
     p.add_argument("--model",    default="medium", metavar="MODEL",
                    help="Whisper model: tiny/base/small/medium/large-v3  (default: medium)")
     p.add_argument("--replace",  action="store_true",
-                   help="Re-analyze chapters that already have timing data")
+                   help="Re-process chapters that are already done")
     p.add_argument("--list",     action="store_true",
-                   help="List chapters and their audio/timing status, then exit")
+                   help="List chapters with audio/transcript/timing status, then exit")
     p.add_argument("--list-models", action="store_true",
                    help="Print available Whisper models and exit")
     p.add_argument("--verbose",  action="store_true",
@@ -728,12 +1143,13 @@ def main() -> None:
         return
 
     success = analyze_book(
-        book_id      = args.book_id,
-        lang         = args.lang,
-        chapters_spec= args.chapters,
-        model_name   = args.model,
-        replace      = args.replace,
-        verbose      = args.verbose,
+        book_id       = args.book_id,
+        lang          = args.lang,
+        chapters_spec = args.chapters,
+        model_name    = args.model,
+        replace       = args.replace,
+        verbose       = args.verbose,
+        stage         = args.stage,
     )
     sys.exit(0 if success else 1)
 

@@ -1336,16 +1336,30 @@ def generate_book(book_dir: Path, do_tts: bool = True) -> bool:
             src_mp3s = sorted(book_dir.glob("*.mp3"))
             if src_mp3s:
                 step("Copying MP3 audio from source")
-                offset  = max(0, len(chapters) - len(src_mp3s))
-                matched = 0
-                for i, mp3 in enumerate(src_mp3s):
-                    ch_idx = i + offset
-                    if ch_idx < len(chapters):
-                        names = split_mp3_if_large(mp3, dest_dir)
-                        chapters[ch_idx][f"audio_{lang}"] = names[0] if len(names) == 1 else names
-                        matched += 1
+                # Filename convention: {book-id}-ch{N}.mp3  (N = 0-based chapter index)
+                # Multiple parts for one chapter share the same ch{N} number.
+                ch_audio: dict[int, list[str]] = {}   # ch_idx → dest filenames (sorted)
+                matched, skipped = 0, 0
+                for mp3 in src_mp3s:
+                    m = re.search(r'(?:^|-)ch(\d+)', mp3.stem)
+                    if not m:
+                        info(f"No ch{{N}} in filename — skipping {mp3.name}")
+                        skipped += 1
+                        continue
+                    ch_idx = int(m.group(1))
+                    if ch_idx >= len(chapters):
+                        info(f"ch{ch_idx} out of range ({len(chapters)} chapters) — skipping {mp3.name}")
+                        skipped += 1
+                        continue
+                    names = split_mp3_if_large(mp3, dest_dir)
+                    ch_audio.setdefault(ch_idx, []).extend(names)
+                    matched += 1
+                for ch_idx, names in ch_audio.items():
+                    chapters[ch_idx][f"audio_{lang}"] = names[0] if len(names) == 1 else names
                 if matched:
-                    info(f"Matched {matched} MP3s (offset={offset})")
+                    info(f"Matched {matched} MP3s ({len(ch_audio)} chapters via ch{{N}} filename)")
+                if skipped:
+                    info(f"Skipped {skipped} files (no ch{{N}} pattern or out of range)")
             else:
                 info("No audio found — run generate-tts.py to create MP3s")
 

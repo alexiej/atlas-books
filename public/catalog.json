@@ -71,7 +71,34 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/20-000-mil-podmorskiej-zeglugi.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/20-000-mil-podmorskiej-zeglugi_mp3.zip"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
+  },
+  {
+    "id": "arystoteles-polityka",
+    "title": "Polityka",
+    "author": "Arystoteles",
+    "year": "IV w. p.n.e.",
+    "description": "Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.",
+    "cover_file": "arystoteles-polityka-cover.jpg",
+    "files": {
+      "html": "arystoteles-polityka.html",
+      "epub": "arystoteles-polityka.epub",
+      "pdf": "arystoteles-polityka.pdf"
+    },
+    "audio": [
+      "arystoteles-polityka-ch1-part000.mp3",
+      "arystoteles-polityka-ch1-part001.mp3",
+      "arystoteles-polityka-ch1-part002.mp3",
+      "arystoteles-polityka-ch1-part003.mp3",
+      "arystoteles-polityka-ch1-part004.mp3",
+      "arystoteles-polityka-ch1-part005.mp3"
+    ],
+    "audio_source": "ElevenLabs",
+    "attribution": {
+      "epub_url": "arystoteles-polityka.epub",
+      "pdf_url": "arystoteles-polityka.pdf"
+    },
+    "published": "2026-07-22"
   },
   {
     "id": "darwin-o-powstawaniu-gatunkow",
@@ -135,7 +162,7 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/darwin-o-powstawaniu-gatunkow.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/darwin-o-powstawaniu-gatunkow.pdf"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "homer-odyseja",
@@ -202,7 +229,7 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/homer-odyseja_mp3.zip"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "lewis-carroll-alice",
@@ -222,7 +249,7 @@
       "epub_url": "lewis-carroll-alice.epub",
       "pdf_url": "lewis-carroll-alice.pdf"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "machiavelli-traktat-o-ksieciu",
@@ -255,7 +282,7 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/machiavelli-traktat-o-ksieciu.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/machiavelli-traktat-o-ksieciu_mp3.zip"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "odyssey",
@@ -310,7 +337,7 @@
       "pdf_url": "odyssey.pdf",
       "mp3_zip_url": null
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "platon-panstwo",
@@ -375,7 +402,7 @@
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf",
       "mp3_zip_url": "https://wolnelektury.pl/katalog/zip/platon-panstwo_mp3.zip"
     },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   },
   {
     "id": "rousseau-umowa-spoleczna",
@@ -400,33 +427,6 @@
       "epub_url": "https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub",
       "pdf_url": "https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf"
     },
-    "published": "2026-07-21"
-  },
-  {
-    "id": "arystoteles-polityka",
-    "title": "Polityka",
-    "author": "Arystoteles",
-    "year": "IV w. p.n.e.",
-    "description": "Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.",
-    "cover_file": "arystoteles-polityka-cover.jpg",
-    "files": {
-      "html": "arystoteles-polityka.html",
-      "epub": "arystoteles-polityka.epub",
-      "pdf": "arystoteles-polityka.pdf"
-    },
-    "audio": [
-      "arystoteles-polityka-ch1-part000.mp3",
-      "arystoteles-polityka-ch1-part001.mp3",
-      "arystoteles-polityka-ch1-part002.mp3",
-      "arystoteles-polityka-ch1-part003.mp3",
-      "arystoteles-polityka-ch1-part004.mp3",
-      "arystoteles-polityka-ch1-part005.mp3"
-    ],
-    "audio_source": "ElevenLabs",
-    "attribution": {
-      "epub_url": "arystoteles-polityka.epub",
-      "pdf_url": "arystoteles-polityka.pdf"
-    },
-    "published": "2026-07-21"
+    "published": "2026-07-22"
   }
 ]
