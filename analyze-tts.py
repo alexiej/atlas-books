@@ -337,16 +337,16 @@ def build_full_ref_words(chapters: list[dict], lang: str) -> list[dict]:
     return all_words
 
 
-def scan_audio_groups(dest: Path, book_id: str) -> dict[str, list[Path]]:
+def scan_audio_groups(dest: Path, book_id: str, lang: str = "pl") -> dict[str, list[Path]]:
     """
     Scan dest/ for MP3 files and group by chapter.
 
-    Two modes:
-    • Per-chapter files  — names contain ch{N} (e.g. *-ch1-part000.mp3)
+    Priority:
+    1. Per-chapter files — names contain ch{N} (e.g. *-ch1-*.mp3)
                            → {ch1: [...], ch2: [...], …}
-    • Single / whole-book file — no ch{N} in any filename
-                           → {"ch0": [all mp3s sorted by name]}
-                           The aligner will find seek_to per chapter automatically.
+    2. tts-audio-{lang}.json — existing chapter→audio mapping produced by generate.py
+                           → {ch0: [...], ch1: [...], …} with known chapter_id mapping
+    3. Whole-book fallback — all MP3s in a single group ch0
     """
     groups: dict[str, list[Path]] = {}
     for mp3 in sorted(dest.glob("*.mp3")):
@@ -357,10 +357,28 @@ def scan_audio_groups(dest: Path, book_id: str) -> dict[str, list[Path]]:
     if groups:
         return dict(sorted(groups.items(), key=lambda x: int(x[0][2:])))
 
-    # No ch{N} files — treat all MP3s as a single whole-book group
+    # Try tts-audio-{lang}.json — it maps chapter_id → audio files
+    audio_json = dest / f"tts-audio-{lang}.json"
+    if audio_json.exists():
+        try:
+            tts_map = json.loads(audio_json.read_text(encoding="utf-8"))
+            for i, (_ch_id, entry) in enumerate(tts_map.items()):
+                audio = entry.get("audio", [])
+                if isinstance(audio, str):
+                    audio = [audio]
+                paths = [dest / f for f in audio if (dest / f).exists()]
+                if paths:
+                    groups[f"ch{i}"] = sorted(paths)
+            if groups:
+                info(f"Groups from tts-audio-{lang}.json: {len(groups)} chapters")
+                return dict(sorted(groups.items(), key=lambda x: int(x[0][2:])))
+        except Exception as e:
+            warn(f"Could not read tts-audio-{lang}.json: {e}")
+
+    # Whole-book fallback — treat all MP3s as a single group
     all_mp3 = sorted(dest.glob("*.mp3"))
     if all_mp3:
-        info(f"No ch{{N}} files — treating {len(all_mp3)} MP3(s) as single group (whole-book audio)")
+        info(f"No ch{{N}} files — treating {len(all_mp3)} MP3(s) as whole-book group (ch0)")
         return {"ch0": all_mp3}
     return {}
 
@@ -763,11 +781,35 @@ def analyze_book(
     # STAGE 1 — TRANSCRIBE: scan MP3 files by filename, build transcript
     # ══════════════════════════════════════════════════════════════════════════
     if do_transcribe:
-        # Scan directory for {book_id}-ch{N}[-part*].mp3
-        audio_groups = scan_audio_groups(dest, book_id)
+        # Scan directory for audio groups (ch{N} filenames or tts-audio-{lang}.json)
+        audio_groups = scan_audio_groups(dest, book_id, lang)
         if not audio_groups:
             err(f"No MP3 files found in books-dest/{book_id}/ — run generate.py first")
             return False
+
+        # Build chkey→chapter_id: reverse-lookup each group's audio files in tts-audio-{lang}.json.
+        # This works for any ch-key format (ch1, ch01, ch001, …) because we match by file content.
+        chkey_to_chid: dict[str, str] = {}
+        audio_json = dest / f"tts-audio-{lang}.json"
+        if audio_json.exists():
+            try:
+                _tts = json.loads(audio_json.read_text(encoding="utf-8"))
+                # file → chapter_id reverse map
+                file_to_chid: dict[str, str] = {}
+                for _ch_id, _entry in _tts.items():
+                    _audio = _entry.get("audio", [])
+                    if isinstance(_audio, str):
+                        _audio = [_audio]
+                    for _f in _audio:
+                        file_to_chid[_f] = _ch_id
+                # map each group key to the chapter_id of its first audio file
+                for ch_key, mp3_list in audio_groups.items():
+                    for mp3 in mp3_list:
+                        if mp3.name in file_to_chid:
+                            chkey_to_chid[ch_key] = file_to_chid[mp3.name]
+                            break
+            except Exception:
+                pass
 
         # Load existing transcript (ch-indexed only — discard old chapter-slug keys)
         tr_map: dict[str, dict] = {}
@@ -842,10 +884,13 @@ def analyze_book(
                         live.fail_chapter(ch_dur)
                         failed_t += 1
                         continue
-                    tr_map[ch_key] = {
+                    entry: dict = {
                         "audio": [f.name for f in mp3_files],
                         "words": words,
                     }
+                    if ch_key in chkey_to_chid:
+                        entry["chapter_id"] = chkey_to_chid[ch_key]
+                    tr_map[ch_key] = entry
                     tr_path.write_text(
                         json.dumps(tr_map, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
@@ -921,43 +966,64 @@ def analyze_book(
         # Run smart alignment (2-phase: exact + diacritic-insensitive)
         bk2wh, covered, all_timing = smart_align_book(all_whisper, all_ref)
 
-        # ── Detect whole-book mode ────────────────────────────────────────────
-        # Single audio group = one continuous recording covering all chapters.
-        # In this mode every chapter gets audio + seek_to; timing is optional.
-        whole_book_mode = len(ch_keys) == 1
-        if whole_book_mode:
-            info("Whole-book mode: all chapters will receive audio + seek_to")
-
         # ── Audio assignment ───────────────────────────────────────────────────
-        # Per-chapter mode: only covered chapters vote for their audio group.
-        # Whole-book mode:  all chapters with any match vote; gaps filled with ch0.
-        wh_to_chkey: dict[int, str] = {}
-        for ck, (start, end) in ch_word_ranges.items():
-            for j in range(start, end):
-                wh_to_chkey[j] = ck
-
-        ch_audio_votes: dict[str, dict[str, int]] = {}
-        for bk_idx, wh_idx in bk2wh.items():
-            ch_id = all_ref[bk_idx].get("chapter_id", "")
-            if ch_id not in covered and not whole_book_mode:
-                continue   # per-chapter: only covered chapters get audio
-            ck = wh_to_chkey.get(wh_idx, "")
-            if ch_id and ck:
-                ch_audio_votes.setdefault(ch_id, {})
-                ch_audio_votes[ch_id][ck] = ch_audio_votes[ch_id].get(ck, 0) + 1
+        # Extract direct chapter_id mapping saved during Stage 1 (from tts-audio-*.json)
+        known_chid: dict[str, str] = {
+            ck: v["chapter_id"]
+            for ck, v in tr_map.items()
+            if isinstance(v.get("chapter_id"), str) and v["chapter_id"]
+        }
 
         chapter_to_audio: dict[str, list[str]] = {}
-        for ch_id, votes in ch_audio_votes.items():
-            best_ck = max(votes, key=votes.__getitem__)
-            chapter_to_audio[ch_id] = tr_map[best_ck].get("audio", [])
 
+        if known_chid and all(ck in known_chid for ck in ch_keys):
+            # Direct mapping from tts-audio-{lang}.json — use exactly those chapters.
+            # Do NOT gap-fill: chapters absent from tts-audio-{lang}.json have no audio.
+            info(f"Direct chapter mapping ({len(known_chid)} groups) — skipping audio voting")
+            for ck in ch_keys:
+                ch_id = known_chid[ck]
+                chapter_to_audio[ch_id] = tr_map[ck].get("audio", [])
+        else:
+            # Voting: per-chapter or whole-book fallback
+            # Whole-book mode = single continuous recording covering all chapters.
+            _single_group = len(ch_keys) == 1
+            wh_to_chkey: dict[int, str] = {}
+            for ck, (start, end) in ch_word_ranges.items():
+                for j in range(start, end):
+                    wh_to_chkey[j] = ck
+
+            ch_audio_votes: dict[str, dict[str, int]] = {}
+            for bk_idx, wh_idx in bk2wh.items():
+                ch_id = all_ref[bk_idx].get("chapter_id", "")
+                if ch_id not in covered and not _single_group:
+                    continue
+                ck = wh_to_chkey.get(wh_idx, "")
+                if ch_id and ck:
+                    ch_audio_votes.setdefault(ch_id, {})
+                    ch_audio_votes[ch_id][ck] = ch_audio_votes[ch_id].get(ck, 0) + 1
+
+            for ch_id, votes in ch_audio_votes.items():
+                best_ck = max(votes, key=votes.__getitem__)
+                chapter_to_audio[ch_id] = tr_map[best_ck].get("audio", [])
+
+            if _single_group:
+                # One audio file MAY cover the whole book — but only gap-fill when global
+                # coverage is high (≥30%).  Per-chapter books where only 1 chapter has audio
+                # will have low global coverage and must NOT be filled.
+                _book_cov = len(bk2wh) / len(all_ref) if all_ref else 0
+                if _book_cov >= 0.30:
+                    whole_audio = tr_map[ch_keys[0]].get("audio", [])
+                    for ch in chapters:
+                        ch_id = ch.get("id", "")
+                        if ch_id and ch_id not in chapter_to_audio:
+                            chapter_to_audio[ch_id] = whole_audio
+
+        # whole_book_mode: True only when ALL book chapters received audio.
+        # Computed after assignment so per-chapter books with partial coverage are False.
+        _valid_ch_ids = {ch.get("id", "") for ch in chapters if ch.get("id", "")}
+        whole_book_mode = bool(_valid_ch_ids) and _valid_ch_ids.issubset(set(chapter_to_audio.keys()))
         if whole_book_mode:
-            # Every chapter shares the same single audio group; fill any gaps
-            whole_audio = tr_map[ch_keys[0]].get("audio", [])
-            for ch in chapters:
-                ch_id = ch.get("id", "")
-                if ch_id and ch_id not in chapter_to_audio:
-                    chapter_to_audio[ch_id] = whole_audio
+            info("Whole-book mode: all chapters received audio + will get seek_to")
 
         # ── Compute seek_to from ALL matched words (not just covered chapters) ─
         # Use bk2wh directly so even below-threshold chapters get a seek_to if
@@ -988,6 +1054,9 @@ def analyze_book(
            f"/ whisper {total_wh}  ref {total_ref}")
         info(f"Covered chapters ({len(covered)}): {', '.join(sorted(covered))}")
 
+        # ── Build chapter index map (for "c" field in timing) ─────────────────
+        ch_idx_map = {ch.get("id", ""): i for i, ch in enumerate(chapters)}
+
         # ── Save tts-transcript-align-{lang}.json ─────────────────────────────
         # In per-chapter mode: only covered chapters are included.
         # In whole-book mode:  all chapters with an audio assignment are included
@@ -1004,6 +1073,10 @@ def analyze_book(
             seek_to = ch_seek_to.get(ch_id)
             out_entry: dict = {"audio": audio}
             if timing:
+                # Annotate each timing entry with chapter index "c"
+                c = ch_idx_map.get(ch_id, 0)
+                for entry in timing:
+                    entry["c"] = c
                 out_entry["timing"] = timing
             if seek_to is not None:
                 out_entry["seek_to"] = seek_to
@@ -1013,47 +1086,8 @@ def analyze_book(
         )
         ok(f"Align map  → {align_path.relative_to(PROJECT_DIR)}")
 
-        # ── Update tts-audio-{lang}.json ──────────────────────────────────────
-        # Load existing (or start fresh) and replace with correct assignments
-        tts_map: dict[str, dict] = {}
-        if tts_path.exists():
-            try:
-                tts_map = json.loads(tts_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        # Remove old wrong-chapter entries not in current book
-        valid_ids = {ch.get("id", "") for ch in chapters}
-        for k in list(tts_map.keys()):
-            if k not in valid_ids:
-                del tts_map[k]
-        # Write correct entries — only covered chapters
-        for ch_id, data in align_out.items():
-            timing  = data.get("timing", [])
-            audio   = data.get("audio")
-            seek_to = data.get("seek_to")
-            tts_entry: dict = {}
-            if audio:
-                tts_entry["audio"] = audio
-            if seek_to is not None:
-                tts_entry["seek_to"] = seek_to
-            if timing:
-                tts_entry["timing"] = timing
-            if tts_entry:
-                tts_map[ch_id] = tts_entry
-            else:
-                tts_map.pop(ch_id, None)
-        # Remove chapters that are no longer in align_out.
-        # In whole-book mode we keep existing entries that still have valid audio
-        # (align_out already includes all chapters with audio, so this mainly
-        # cleans up per-chapter mode orphans).
-        for ch_id in list(tts_map.keys()):
-            if ch_id not in align_out and ch_id in valid_ids:
-                if not whole_book_mode:
-                    tts_map.pop(ch_id, None)
-        tts_path.write_text(
-            json.dumps(tts_map, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        ok(f"Audio map  → {tts_path.relative_to(PROJECT_DIR)}")
+        # tts-audio-{lang}.json is owned exclusively by generate.py and is never
+        # modified here.  All analysis output lives in tts-transcript-align-{lang}.json.
 
         total_time = time.monotonic() - wall_start
         info(f"Total time: {_fmt_secs(total_time)}")

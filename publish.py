@@ -177,25 +177,41 @@ def load_book_from_dest(book_id: str) -> dict:
             cover = f"data:{mime};base64,{data}"
             break
 
-    # Re-apply audio filenames + timing from tts-audio-{lang}.json
-    tts_path = dest / f"tts-audio-{lang}.json"
-    if tts_path.exists():
-        try:
+    # Re-apply audio + timing.
+    # Priority: tts-transcript-align-{lang}.json (written by analyze-tts.py — has timing + seek_to)
+    #           tts-audio-{lang}.json             (written by generate.py    — basic audio list)
+    align_path = dest / f"tts-transcript-align-{lang}.json"
+    tts_path   = dest / f"tts-audio-{lang}.json"
+    align_map: dict = {}
+    tts_map:   dict = {}
+    try:
+        if align_path.exists():
+            align_map = json.loads(align_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    try:
+        if tts_path.exists():
             tts_map = json.loads(tts_path.read_text(encoding="utf-8"))
-            for ch in chapters:
-                entry = tts_map.get(ch.get("id", ""))
-                if entry:
-                    audio = entry.get("audio")
-                    if audio:
-                        ch[f"audio_{lang}"] = audio
-                    seek_to = entry.get("seek_to")
-                    if seek_to is not None:
-                        ch[f"seek_to_{lang}"] = seek_to
-                    timing = entry.get("timing")
-                    if timing:
-                        ch[f"timing_{lang}"] = timing
-        except Exception:
-            pass
+    except Exception:
+        pass
+    if align_map or tts_map:
+        for ch in chapters:
+            ch_id = ch.get("id", "")
+            # If the align file exists, use it exclusively (tts-audio-pl.json may have
+            # stale/corrupt data from old analyze-tts.py runs).  Only fall back to
+            # tts_map when no align file exists at all (i.e. analyze-tts.py hasn't run yet).
+            entry = align_map.get(ch_id) if align_map else tts_map.get(ch_id)
+            if not entry:
+                continue
+            audio = entry.get("audio")
+            if audio:
+                ch[f"audio_{lang}"] = audio
+            seek_to = entry.get("seek_to")
+            if seek_to is not None:
+                ch[f"seek_to_{lang}"] = seek_to
+            timing = entry.get("timing")
+            if timing:
+                ch[f"timing_{lang}"] = timing
 
     return {**config, "cover": cover, "chapters": chapters}
 

@@ -695,6 +695,8 @@ export default function App() {
   const audioCurChRef   = useRef<number | null>(null)       // stable ref for onEnded closure
   const audioPlayingRef = useRef(false)                     // stable ref for beforeunload
   const pagesRef        = useRef<PageSpec[]>([])            // stable ref for pages (used in RAF)
+  // Whole-book chapter breaks: [{t: seek_to_global, idx: chapterIdx}] sorted by t
+  const chapterBreaksRef = useRef<{t: number; idx: number}[]>([])
   const lastFollowPage  = useRef<number>(-1)                // last page we auto-navigated to
 
   // ── Audio mode: 'mp3' (file) | 'speech' (Web Speech API) ─────────────────
@@ -1148,6 +1150,22 @@ export default function App() {
       el.currentTime = Math.max(0, targetGlobal - audioPartOffsetRef.current)
       pendingSeekRef.current = null
     }
+
+    // Whole-book audio: navigate to the chapter containing targetGlobal
+    const breaks = chapterBreaksRef.current
+    if (breaks.length > 1) {
+      // Binary search: last break with t <= targetGlobal
+      let lo = 0, hi = breaks.length - 1, bestIdx = breaks[0].idx
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (breaks[mid].t <= targetGlobal) { bestIdx = breaks[mid].idx; lo = mid + 1 }
+        else hi = mid - 1
+      }
+      if (bestIdx !== audioCurChRef.current) {
+        audioCurChRef.current = bestIdx
+        setAudioCurCh(bestIdx)
+      }
+    }
   }, [audioDuration])
 
   // ── Web Speech API — build and start utterance ─────────────────────────────
@@ -1312,6 +1330,21 @@ export default function App() {
     lastFollowPage.current = -1  // reset so page-follow re-triggers for new chapter
   }, [audioCurCh, audioLang])
 
+  // ── Build chapter break table for whole-book seek navigation ──────────────
+  // [{t: seek_to_global, idx: chapterIdx}] sorted by t; only chapters with seek_to
+  useEffect(() => {
+    const langKey = audioLang === 'pl' ? 'seek_to_pl' : 'seek_to_en'
+    const breaks: {t: number; idx: number}[] = []
+    for (let i = 0; i < book.chapters.length; i++) {
+      const st = (book.chapters[i] as unknown as Record<string, unknown>)[langKey] as number | undefined
+      if (typeof st === 'number' && st >= 0) {
+        breaks.push({ t: st, idx: i })
+      }
+    }
+    breaks.sort((a, b) => a.t - b.t)
+    chapterBreaksRef.current = breaks
+  }, [audioLang])
+
 
   // ── RAF loop — direct DOM highlighting (no React re-render per frame) ──────
   useEffect(() => {
@@ -1329,6 +1362,21 @@ export default function App() {
       // Use GLOBAL time (offset + local) so timing matches absolute timestamps in entries
       const t     = audioPartOffsetRef.current + (audioRef.current?.currentTime ?? 0)
       const words = timingWordsRef.current
+
+      // Whole-book mode: auto-advance chapter when audio crosses a seek_to boundary
+      const breaks = chapterBreaksRef.current
+      if (breaks.length > 1) {
+        let lo = 0, hi = breaks.length - 1, bestIdx = breaks[0].idx
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1
+          if (breaks[mid].t <= t) { bestIdx = breaks[mid].idx; lo = mid + 1 }
+          else hi = mid - 1
+        }
+        if (bestIdx !== audioCurChRef.current) {
+          audioCurChRef.current = bestIdx
+          setAudioCurCh(bestIdx)
+        }
+      }
 
       // Binary search: last word with s <= t
       let lo = 0, hi = words.length - 1, idx = -1

@@ -280,8 +280,13 @@ async def run(
         if i not in target_indices:
             continue
         ch_id    = ch.get("id", f"ch{i+1}")
-        mp3_name = f"{book_id}-{ch_id}.mp3"
-        already  = ch_id in sidecar["chapters"] and (book_dir / mp3_name).exists()
+        ch_num   = ch.get("number", i + 1)
+        mp3_name = f"{book_id}-ch{ch_num:02d}-{ch_id}.mp3"
+        # Also accept old naming (book_id-ch_id.mp3) for backward compat
+        old_mp3  = f"{book_id}-{ch_id}.mp3"
+        already  = ch_id in sidecar["chapters"] and (
+            (book_dir / mp3_name).exists() or (book_dir / old_mp3).exists()
+        )
         if already and not replace:
             continue
         to_do.append(i)
@@ -318,11 +323,11 @@ async def run(
             break
 
         ch      = chapters[ch_idx]
-        ch_id   = ch.get("id", f"ch{ch_idx + 1}")
-        ch_num  = ch.get("number", ch_idx + 1)
-        ch_title= ch.get("title", f"Chapter {ch_num}")
-        mp3_name= f"{book_id}-{ch_id}.mp3"
-        mp3_path= book_dir / mp3_name
+        ch_id    = ch.get("id", f"ch{ch_idx + 1}")
+        ch_num   = ch.get("number", ch_idx + 1)
+        ch_title = ch.get("title", f"Chapter {ch_num}")
+        mp3_name = f"{book_id}-ch{ch_num:02d}-{ch_id}.mp3"
+        mp3_path = book_dir / mp3_name
 
         print(f"  {bold(gold(f'[{seq+1:>3}/{len(to_do)}]'))}  {bold(ch_title)}")
         if prog.done and prog.avg:
