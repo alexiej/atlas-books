@@ -406,6 +406,16 @@ body {
   /* block-based pagination: no transform needed */
 }
 
+/* ── Word-seek: clickable words when highlight mode + audio active ───── */
+[data-word-seek="true"] span[data-bi] {
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.1s;
+}
+[data-word-seek="true"] span[data-bi]:hover {
+  background: rgba(184, 146, 60, 0.18);
+}
+
 /* Scrollable content (S preset) */
 .page-content-clip[style*="overflow"] {
   scrollbar-width: thin;

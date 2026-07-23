@@ -88,8 +88,9 @@
                    font-weight:600; line-height:1.2; color:var(--text); }
     .card-desc { font-family:var(--font-b); font-size:0.88rem; line-height:1.5; color:var(--text-dim);
                   overflow:hidden; display:-webkit-box; -webkit-line-clamp:3;
-                  -webkit-box-orient:vertical; flex:1; }
-    .card-links { display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.5rem; }
+                  -webkit-box-orient:vertical; }
+    .card-footer { margin-top:auto; padding-top:0.6rem; display:flex; flex-direction:column; gap:0.35rem; }
+    .card-links { display:flex; gap:0.4rem; flex-wrap:wrap; }
     .card-btn {
       font-family:var(--font-h); font-size:7.5px; letter-spacing:0.15em; text-transform:uppercase;
       text-decoration:none; padding:5px 12px; border-radius:3px; border:1px solid var(--border);
@@ -105,6 +106,49 @@
       font-family:var(--font-h); font-size:7px; letter-spacing:0.1em;
       padding:3px 6px; border-radius:3px; pointer-events:none;
     }
+
+    /* ── Reading progress ────────────────────────────── */
+    .card-progress {
+      position:absolute; bottom:0; left:0; right:0; height:4px;
+      background:var(--gold-dim); z-index:3;
+    }
+    .card-progress-fill { height:100%; background:var(--gold); transition:width 0.4s; }
+
+    .card-status-row {
+      font-family:var(--font-h); font-size:7.5px; letter-spacing:0.1em;
+      text-transform:uppercase; color:var(--text-dim); min-height:1.2em;
+    }
+    .card-status-row.s-reading { color:var(--gold); }
+    .card-status-row.s-done    { color:#4a9c6a; }
+    .card-status-row.s-next    { color:#7b6fcf; }
+    [data-theme="dark"] .card-status-row.s-done { color:#6ec98a; }
+    [data-theme="dark"] .card-status-row.s-next { color:#a89de0; }
+
+    .card-actions {
+      display:flex; gap:0.35rem;
+    }
+    .action-btn {
+      font-family:var(--font-h); font-size:7px; letter-spacing:0.1em;
+      text-transform:uppercase; padding:4px 9px; border-radius:3px;
+      border:1px solid var(--border); color:var(--text-dim); background:none;
+      cursor:pointer; transition:all 0.15s; white-space:nowrap;
+    }
+    .action-btn:hover { color:var(--gold); border-color:var(--gold-dim); background:var(--gold-dim); }
+    .action-btn.active.action-done { color:#4a9c6a; border-color:rgba(74,156,106,0.35); background:rgba(74,156,106,0.12); }
+    .action-btn.active.action-next { color:#7b6fcf; border-color:rgba(123,111,207,0.35); background:rgba(123,111,207,0.12); }
+    [data-theme="dark"] .action-btn.active.action-done { color:#6ec98a; border-color:rgba(110,201,138,0.3); background:rgba(110,201,138,0.1); }
+    [data-theme="dark"] .action-btn.active.action-next { color:#a89de0; border-color:rgba(168,157,224,0.3); background:rgba(168,157,224,0.1); }
+
+    /* ── Filter tabs ─────────────────────────────────── */
+    .filter-tabs { display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+    .filter-tab {
+      font-family:var(--font-h); font-size:7.5px; letter-spacing:0.15em;
+      text-transform:uppercase; padding:5px 14px; border-radius:3px;
+      border:1px solid var(--border); color:var(--text-dim); background:none;
+      cursor:pointer; transition:all 0.15s;
+    }
+    .filter-tab:hover { color:var(--gold); border-color:var(--gold-dim); }
+    .filter-tab.active { background:var(--gold-dim); color:var(--gold); border-color:var(--gold-dim); }
     .card-audio-badge {
       position:absolute; top:0.5rem; left:0.5rem; z-index:2;
       display:inline-flex; align-items:center; gap:4px;
@@ -157,122 +201,164 @@
             data-en="9 titles"
             data-pl="9 książek">9 titles</span>
     </div>
+    <div class="filter-tabs" id="filter-tabs">
+      <button class="filter-tab active" onclick="filterStatus(this,'')" data-en="All" data-pl="Wszystkie">All</button>
+      <button class="filter-tab" onclick="filterStatus(this,'reading')" data-en="Reading" data-pl="Czytam">Reading</button>
+      <button class="filter-tab" onclick="filterStatus(this,'done')" data-en="Read" data-pl="Przeczytane">Read</button>
+      <button class="filter-tab" onclick="filterStatus(this,'next')" data-en="Next" data-pl="Następna">Next</button>
+    </div>
     <div class="books-grid" id="grid">
 
-  <article class="book-card" data-id="20-000-mil-podmorskiej-zeglugi">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="20-000-mil-podmorskiej-zeglugi-cover.jpg" alt="20 000 mil podmorskiej żeglugi" loading="lazy"/><span class="bm-badge" data-bid="20-000-mil-podmorskiej-zeglugi" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span></div>
+  <article class="book-card" data-id="20-000-mil-podmorskiej-zeglugi" data-chapters="48">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="20-000-mil-podmorskiej-zeglugi-cover.jpg" alt="20 000 mil podmorskiej żeglugi" loading="lazy"/><span class="bm-badge" data-bid="20-000-mil-podmorskiej-zeglugi" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span><div class="card-progress" data-prog-bid="20-000-mil-podmorskiej-zeglugi"><div class="card-progress-fill" style="width:0%"></div></div></div>
     <div class="card-body">
       <div class="card-meta">
         <span class="card-author">Jules Gabriel Verne</span>
         <span class="card-year">XIX w.</span>
       </div>
       <h2 class="card-title">20 000 mil podmorskiej żeglugi</h2>
+      <div class="card-status-row" data-status-bid="20-000-mil-podmorskiej-zeglugi"></div>
       
-      <div class="card-links"><a class="card-btn card-btn--primary" href="20-000-mil-podmorskiej-zeglugi.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/20-000-mil-podmorskiej-zeglugi.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/20-000-mil-podmorskiej-zeglugi.pdf" target="_blank" rel="noreferrer">PDF</a></div>
-    </div>
-  </article>
-
-  <article class="book-card" data-id="arystoteles-polityka">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="arystoteles-polityka-cover.jpg" alt="Polityka" loading="lazy"/><span class="bm-badge" data-bid="arystoteles-polityka" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>ElevenLabs</span></span></div>
-    <div class="card-body">
-      <div class="card-meta">
-        <span class="card-author">Arystoteles</span>
-        <span class="card-year">IV w. p.n.e.</span>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="20-000-mil-podmorskiej-zeglugi.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/20-000-mil-podmorskiej-zeglugi.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/20-000-mil-podmorskiej-zeglugi.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="20-000-mil-podmorskiej-zeglugi" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="20-000-mil-podmorskiej-zeglugi" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
       </div>
-      <h2 class="card-title">Polityka</h2>
-      <p class="card-desc">Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.</p>
-      <div class="card-links"><a class="card-btn card-btn--primary" href="arystoteles-polityka.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="arystoteles-polityka.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="arystoteles-polityka.pdf" target="_blank" rel="noreferrer">PDF</a></div>
     </div>
   </article>
 
-  <article class="book-card" data-id="darwin-o-powstawaniu-gatunkow">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="darwin-o-powstawaniu-gatunkow-cover.jpg" alt="O powstawaniu gatunków drogą doboru naturalnego" loading="lazy"/><span class="bm-badge" data-bid="darwin-o-powstawaniu-gatunkow" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>AI</span></span></div>
-    <div class="card-body">
-      <div class="card-meta">
-        <span class="card-author">Karol Darwin</span>
-        <span class="card-year">XIX w.</span>
-      </div>
-      <h2 class="card-title">O powstawaniu gatunków drogą doboru naturalnego</h2>
-      
-      <div class="card-links"><a class="card-btn card-btn--primary" href="darwin-o-powstawaniu-gatunkow.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/darwin-o-powstawaniu-gatunkow.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/darwin-o-powstawaniu-gatunkow.pdf" target="_blank" rel="noreferrer">PDF</a></div>
-    </div>
-  </article>
-
-  <article class="book-card" data-id="homer-odyseja">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="homer-odyseja-cover.jpg" alt="Odyseja" loading="lazy"/><span class="bm-badge" data-bid="homer-odyseja" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span></div>
-    <div class="card-body">
-      <div class="card-meta">
-        <span class="card-author">Homer</span>
-        <span class="card-year">do 476</span>
-      </div>
-      <h2 class="card-title">Odyseja</h2>
-      
-      <div class="card-links"><a class="card-btn card-btn--primary" href="homer-odyseja.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/homer-odyseja.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf" target="_blank" rel="noreferrer">PDF</a></div>
-    </div>
-  </article>
-
-  <article class="book-card" data-id="lewis-carroll-alice">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="lewis-carroll-alice-cover.jpg" alt="Alice&#x27;s Adventures in Wonderland" loading="lazy"/><span class="bm-badge" data-bid="lewis-carroll-alice" style="display:none"></span></div>
+  <article class="book-card" data-id="lewis-carroll-alice" data-chapters="14">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="lewis-carroll-alice-cover.jpg" alt="Alice&#x27;s Adventures in Wonderland" loading="lazy"/><span class="bm-badge" data-bid="lewis-carroll-alice" style="display:none"></span><div class="card-progress" data-prog-bid="lewis-carroll-alice"><div class="card-progress-fill" style="width:0%"></div></div></div>
     <div class="card-body">
       <div class="card-meta">
         <span class="card-author">Lewis Carroll</span>
         <span class="card-year">1865</span>
       </div>
       <h2 class="card-title">Alice&#x27;s Adventures in Wonderland</h2>
+      <div class="card-status-row" data-status-bid="lewis-carroll-alice"></div>
       <p class="card-desc">Klasyczna powieść fantastyczna opowiadająca o przygodach dziewczynki o imieniu Alicja, która po podążeniu za Białym Królikiem trafia do niezwykłego świata pełnego antropomorficznych stworzeń i absurdów językowych.</p>
-      <div class="card-links"><a class="card-btn card-btn--primary" href="lewis-carroll-alice.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="lewis-carroll-alice.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="lewis-carroll-alice.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="lewis-carroll-alice.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="lewis-carroll-alice.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="lewis-carroll-alice.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="lewis-carroll-alice" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="lewis-carroll-alice" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
     </div>
   </article>
 
-  <article class="book-card" data-id="machiavelli-traktat-o-ksieciu">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="machiavelli-traktat-o-ksieciu-cover.jpg" alt="Książę" loading="lazy"/><span class="bm-badge" data-bid="machiavelli-traktat-o-ksieciu" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span></div>
+  <article class="book-card" data-id="machiavelli-traktat-o-ksieciu" data-chapters="29">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="machiavelli-traktat-o-ksieciu-cover.jpg" alt="Książę" loading="lazy"/><span class="bm-badge" data-bid="machiavelli-traktat-o-ksieciu" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span><div class="card-progress" data-prog-bid="machiavelli-traktat-o-ksieciu"><div class="card-progress-fill" style="width:0%"></div></div></div>
     <div class="card-body">
       <div class="card-meta">
         <span class="card-author">Niccolò Machiavelli</span>
         <span class="card-year">XV–XVI w.</span>
       </div>
       <h2 class="card-title">Książę</h2>
+      <div class="card-status-row" data-status-bid="machiavelli-traktat-o-ksieciu"></div>
       
-      <div class="card-links"><a class="card-btn card-btn--primary" href="machiavelli-traktat-o-ksieciu.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/machiavelli-traktat-o-ksieciu.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/machiavelli-traktat-o-ksieciu.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="machiavelli-traktat-o-ksieciu.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/machiavelli-traktat-o-ksieciu.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/machiavelli-traktat-o-ksieciu.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="machiavelli-traktat-o-ksieciu" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="machiavelli-traktat-o-ksieciu" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
     </div>
   </article>
 
-  <article class="book-card" data-id="odyssey">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="odyssey-cover.jpg" alt="The Odyssey" loading="lazy"/><span class="bm-badge" data-bid="odyssey" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>LibriVox</span></span></div>
+  <article class="book-card" data-id="darwin-o-powstawaniu-gatunkow" data-chapters="18">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="darwin-o-powstawaniu-gatunkow-cover.jpg" alt="O powstawaniu gatunków drogą doboru naturalnego" loading="lazy"/><span class="bm-badge" data-bid="darwin-o-powstawaniu-gatunkow" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>AI</span></span><div class="card-progress" data-prog-bid="darwin-o-powstawaniu-gatunkow"><div class="card-progress-fill" style="width:0%"></div></div></div>
+    <div class="card-body">
+      <div class="card-meta">
+        <span class="card-author">Karol Darwin</span>
+        <span class="card-year">XIX w.</span>
+      </div>
+      <h2 class="card-title">O powstawaniu gatunków drogą doboru naturalnego</h2>
+      <div class="card-status-row" data-status-bid="darwin-o-powstawaniu-gatunkow"></div>
+      
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="darwin-o-powstawaniu-gatunkow.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/darwin-o-powstawaniu-gatunkow.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/darwin-o-powstawaniu-gatunkow.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="darwin-o-powstawaniu-gatunkow" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="darwin-o-powstawaniu-gatunkow" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="book-card" data-id="homer-odyseja" data-chapters="25">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="homer-odyseja-cover.jpg" alt="Odyseja" loading="lazy"/><span class="bm-badge" data-bid="homer-odyseja" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span><div class="card-progress" data-prog-bid="homer-odyseja"><div class="card-progress-fill" style="width:0%"></div></div></div>
     <div class="card-body">
       <div class="card-meta">
         <span class="card-author">Homer</span>
-        <span class="card-year">8th century BC</span>
+        <span class="card-year">do 476</span>
       </div>
-      <h2 class="card-title">The Odyssey</h2>
-      <p class="card-desc">An ancient Greek epic poem that follows Odysseus, king of Ithaca, on his perilous ten-year journey home after the Trojan War while his wife Penelope and son Telemachus face aggressive suitors at home.</p>
-      <div class="card-links"><a class="card-btn card-btn--primary" href="odyssey.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://www.gutenberg.org/ebooks/1727.epub3.images" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="odyssey.pdf" target="_blank" rel="noreferrer">PDF</a></div>
-    </div>
-  </article>
-
-  <article class="book-card" data-id="rousseau-umowa-spoleczna">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="rousseau-umowa-spoleczna-cover.jpg" alt="Umowa społeczna" loading="lazy"/><span class="bm-badge" data-bid="rousseau-umowa-spoleczna" style="display:none"></span></div>
-    <div class="card-body">
-      <div class="card-meta">
-        <span class="card-author">Jean-Jacques Rousseau</span>
-        <span class="card-year">XVIII w.</span>
-      </div>
-      <h2 class="card-title">Umowa społeczna</h2>
+      <h2 class="card-title">Odyseja</h2>
+      <div class="card-status-row" data-status-bid="homer-odyseja"></div>
       
-      <div class="card-links"><a class="card-btn card-btn--primary" href="rousseau-umowa-spoleczna.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="homer-odyseja.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/homer-odyseja.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/homer-odyseja.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="homer-odyseja" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="homer-odyseja" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
     </div>
   </article>
 
-  <article class="book-card" data-id="platon-panstwo">
-    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="platon-panstwo-cover.jpg" alt="Państwo" loading="lazy"/><span class="bm-badge" data-bid="platon-panstwo" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span></div>
+  <article class="book-card" data-id="platon-panstwo" data-chapters="10">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="platon-panstwo-cover.jpg" alt="Państwo" loading="lazy"/><span class="bm-badge" data-bid="platon-panstwo" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Wolne Lektury</span></span><div class="card-progress" data-prog-bid="platon-panstwo"><div class="card-progress-fill" style="width:0%"></div></div></div>
     <div class="card-body">
       <div class="card-meta">
         <span class="card-author">Platon</span>
         <span class="card-year">do 476</span>
       </div>
       <h2 class="card-title">Państwo</h2>
+      <div class="card-status-row" data-status-bid="platon-panstwo"></div>
       
-      <div class="card-links"><a class="card-btn card-btn--primary" href="platon-panstwo.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/platon-panstwo.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="platon-panstwo.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/platon-panstwo.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/platon-panstwo.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="platon-panstwo" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="platon-panstwo" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="book-card" data-id="arystoteles-polityka" data-chapters="9">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="arystoteles-polityka-cover.jpg" alt="Polityka" loading="lazy"/><span class="bm-badge" data-bid="arystoteles-polityka" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>ElevenLabs</span></span><div class="card-progress" data-prog-bid="arystoteles-polityka"><div class="card-progress-fill" style="width:0%"></div></div></div>
+    <div class="card-body">
+      <div class="card-meta">
+        <span class="card-author">Arystoteles</span>
+        <span class="card-year">IV w. p.n.e.</span>
+      </div>
+      <h2 class="card-title">Polityka</h2>
+      <div class="card-status-row" data-status-bid="arystoteles-polityka"></div>
+      <p class="card-desc">Fundamentalne dzieło filozofii politycznej, w którym Arystoteles analizuje naturę państwa, różne formy ustrojowe oraz zasady sprawowania władzy.</p>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="arystoteles-polityka.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="arystoteles-polityka.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="arystoteles-polityka.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="arystoteles-polityka" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="arystoteles-polityka" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="book-card" data-id="odyssey" data-chapters="29">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="odyssey-cover.jpg" alt="The Odyssey" loading="lazy"/><span class="bm-badge" data-bid="odyssey" style="display:none"></span><span class="card-audio-badge" title="MP3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" width="12" height="12" style="flex-shrink:0"><path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>LibriVox</span></span><div class="card-progress" data-prog-bid="odyssey"><div class="card-progress-fill" style="width:0%"></div></div></div>
+    <div class="card-body">
+      <div class="card-meta">
+        <span class="card-author">Homer</span>
+        <span class="card-year">8th century BC</span>
+      </div>
+      <h2 class="card-title">The Odyssey</h2>
+      <div class="card-status-row" data-status-bid="odyssey"></div>
+      <p class="card-desc">An ancient Greek epic poem that follows Odysseus, king of Ithaca, on his perilous ten-year journey home after the Trojan War while his wife Penelope and son Telemachus face aggressive suitors at home.</p>
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="odyssey.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://www.gutenberg.org/ebooks/1727.epub3.images" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="odyssey.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="odyssey" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="odyssey" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="book-card" data-id="rousseau-umowa-spoleczna" data-chapters="55">
+    <div class="card-cover-wrap" style="position:relative"><img class="card-cover" src="rousseau-umowa-spoleczna-cover.jpg" alt="Umowa społeczna" loading="lazy"/><span class="bm-badge" data-bid="rousseau-umowa-spoleczna" style="display:none"></span><div class="card-progress" data-prog-bid="rousseau-umowa-spoleczna"><div class="card-progress-fill" style="width:0%"></div></div></div>
+    <div class="card-body">
+      <div class="card-meta">
+        <span class="card-author">Jean-Jacques Rousseau</span>
+        <span class="card-year">XVIII w.</span>
+      </div>
+      <h2 class="card-title">Umowa społeczna</h2>
+      <div class="card-status-row" data-status-bid="rousseau-umowa-spoleczna"></div>
+      
+      <div class="card-footer">
+        <div class="card-links"><a class="card-btn card-btn--primary" href="rousseau-umowa-spoleczna.html"><span data-en="Read" data-pl="Czytaj">Read</span></a><a class="card-btn" href="https://wolnelektury.pl/media/book/epub/rousseau-umowa-spoleczna.epub" target="_blank" rel="noreferrer">EPUB</a><a class="card-btn" href="https://wolnelektury.pl/media/book/pdf/rousseau-umowa-spoleczna.pdf" target="_blank" rel="noreferrer">PDF</a></div>
+        <div class="card-actions"><button class="action-btn action-done" data-bid="rousseau-umowa-spoleczna" onclick="toggleStatus(this,'done')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button><button class="action-btn action-next" data-bid="rousseau-umowa-spoleczna" onclick="toggleStatus(this,'next')" data-en="→ Next" data-pl="→ Następna">→ Next</button></div>
+      </div>
     </div>
   </article>
     </div>
@@ -280,7 +366,7 @@
 
   <footer class="site-footer">
     <span data-en="Atlas Books Publishing Platform" data-pl="Platforma wydawnicza Atlas Books">Atlas Books Publishing Platform</span>
-    · built 2026-07-22
+    · built 2026-07-23
   </footer>
 
   <script>
@@ -288,20 +374,14 @@
     function setLang(lang) {
       document.documentElement.lang = lang;
       localStorage.setItem('atlas-lang', lang);
-
-      // Update text nodes
       document.querySelectorAll('[data-en]').forEach(el => {
         el.textContent = el.dataset[lang] || el.dataset.en;
       });
-      // Update placeholders
       document.querySelectorAll('[data-en-placeholder]').forEach(el => {
         el.placeholder = lang === 'pl' ? el.dataset.plPlaceholder : el.dataset.enPlaceholder;
       });
-      // Update <title>
       const t = document.querySelector('title');
       if (t) t.textContent = t.dataset[lang] || t.dataset.en;
-
-      // Toggle active class
       document.getElementById('btn-en').classList.toggle('active', lang === 'en');
       document.getElementById('btn-pl').classList.toggle('active', lang === 'pl');
     }
@@ -321,21 +401,12 @@
       if (saved) document.documentElement.dataset.theme = saved;
     })();
 
-    // ── Search ─────────────────────────────────────────────────────────────────
-    function filterBooks(q) {
-      q = q.toLowerCase().trim();
-      document.querySelectorAll('.book-card').forEach(card => {
-        card.classList.toggle('hidden', q.length > 1 && !card.textContent.toLowerCase().includes(q));
-      });
-    }
-
     // ── Bookmark badges ────────────────────────────────────────────────────────
     (function() {
       document.querySelectorAll('.bm-badge[data-bid]').forEach(function(badge) {
         var bid = badge.dataset.bid;
-        var key = 'sf-bm-' + bid;
         try {
-          var bms = JSON.parse(localStorage.getItem(key) || '[]');
+          var bms = JSON.parse(localStorage.getItem('sf-bm-' + bid) || '[]');
           if (bms.length > 0) {
             badge.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="10" height="10" xmlns="http://www.w3.org/2000/svg"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> ' + bms.length;
             badge.style.display = '';
@@ -343,6 +414,125 @@
         } catch(e) {}
       });
     })();
+
+    // ── Reading progress ────────────────────────────────────────────────────────
+    var _activeFilter = '';
+
+    function _getProgress(bid) {
+      try { return JSON.parse(localStorage.getItem('atlas-pos-' + bid) || 'null'); } catch(e) { return null; }
+    }
+    function _fmtTime(s) {
+      if (!s || s <= 0) return '';
+      var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+    function _getStatus(bid) {
+      return localStorage.getItem('atlas-status-' + bid) || '';
+    }
+    function _effectiveStatus(bid) {
+      var st = _getStatus(bid);
+      if (st) return st;
+      var pos = _getProgress(bid);
+      if (pos && pos.pct > 0 && pos.pct < 100) return 'reading';
+      if (pos && pos.pct >= 100) return 'reading';  // show as reading until explicitly marked done
+      return '';
+    }
+
+    function loadBookProgress() {
+      var lang = localStorage.getItem('atlas-lang') || 'en';
+      // Progress bars
+      document.querySelectorAll('[data-prog-bid]').forEach(function(bar) {
+        var bid = bar.dataset.progBid;
+        var st  = _getStatus(bid);
+        var pos = _getProgress(bid);
+        var pct = (st === 'done') ? 100 : (pos ? pos.pct : 0);
+        bar.querySelector('.card-progress-fill').style.width = pct + '%';
+      });
+      // Status rows
+      document.querySelectorAll('[data-status-bid]').forEach(function(row) {
+        var bid      = row.dataset.statusBid;
+        var st       = _getStatus(bid);
+        var pos      = _getProgress(bid);
+        var card     = row.closest('.book-card');
+        var totalCh  = card ? parseInt(card.dataset.chapters || '0', 10) : 0;
+        var text = '', cls = '';
+        // Build chapter info string when we have position + chapter count
+        function _chInfo() {
+          if (!pos || totalCh < 2) return '';
+          var cur = (pos.chapter || 0) + 1;
+          return lang === 'pl'
+            ? ('Rozdział ' + cur + ' z ' + totalCh)
+            : ('Chapter '  + cur + ' of ' + totalCh);
+        }
+        if (st === 'done') {
+          text = lang === 'pl' ? '✓ Przeczytana' : '✓ Read';
+          if (totalCh > 1) text += ' · ' + totalCh + ' ' + (lang === 'pl' ? 'rozdziałów' : 'chapters');
+          cls  = 's-done';
+        } else if (st === 'next') {
+          text = lang === 'pl' ? '→ Następna' : '→ Next';
+          if (pos && pos.pct > 0) {
+            text += ' · ' + pos.pct + '%';
+            var ci = _chInfo(); if (ci) text += ' · ' + ci;
+          }
+          cls  = 's-next';
+        } else if (pos && pos.pct > 0) {
+          text = (lang === 'pl' ? '▶ Czytam · ' : '▶ Reading · ') + pos.pct + '%';
+          var ci = _chInfo(); if (ci) text += ' · ' + ci;
+          if (pos.page > 0 && pos.totalPages > 0) text += ' · ' + (lang === 'pl' ? 'str. ' : 'p. ') + pos.page + '/' + pos.totalPages;
+          var at = _fmtTime(pos.audioTime); if (at) text += ' · ♪ ' + at;
+          cls  = 's-reading';
+        } else {
+          // Fallback: old-style sf-page-{bid} key — at least show "in progress"
+          var sfPage = parseInt(localStorage.getItem('sf-page-' + bid) || '0', 10);
+          if (sfPage > 0) {
+            text = lang === 'pl' ? '▶ W trakcie' : '▶ In progress';
+            cls  = 's-reading';
+          }
+        }
+        row.textContent  = text;
+        row.className    = 'card-status-row' + (cls ? ' ' + cls : '');
+      });
+      // Action buttons
+      document.querySelectorAll('.action-btn[data-bid]').forEach(function(btn) {
+        var bid = btn.dataset.bid;
+        var st  = _getStatus(bid);
+        if (btn.classList.contains('action-done')) btn.classList.toggle('active', st === 'done');
+        if (btn.classList.contains('action-next')) btn.classList.toggle('active', st === 'next');
+      });
+    }
+
+    function toggleStatus(btn, newStatus) {
+      var bid     = btn.dataset.bid;
+      var current = _getStatus(bid);
+      var next    = (current === newStatus) ? '' : newStatus;
+      if (next) { localStorage.setItem('atlas-status-' + bid, next); }
+      else      { localStorage.removeItem('atlas-status-' + bid); }
+      loadBookProgress();
+      applyFilters();
+    }
+
+    // ── Filters ────────────────────────────────────────────────────────────────
+    function filterStatus(btn, filter) {
+      _activeFilter = filter;
+      document.querySelectorAll('.filter-tab').forEach(b => b.classList.toggle('active', b === btn));
+      applyFilters();
+    }
+
+    function applyFilters() {
+      var q = (document.getElementById('search').value || '').toLowerCase().trim();
+      document.querySelectorAll('.book-card').forEach(function(card) {
+        var bid = card.dataset.id;
+        var eff = _effectiveStatus(bid);
+        var matchFilter = !_activeFilter || eff === _activeFilter;
+        var matchSearch = q.length < 2 || card.textContent.toLowerCase().includes(q);
+        card.classList.toggle('hidden', !matchFilter || !matchSearch);
+      });
+    }
+
+    function filterBooks(q) { applyFilters(); }
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+    (function() { loadBookProgress(); })();
   </script>
 </body>
 </html>

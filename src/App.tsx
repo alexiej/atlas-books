@@ -488,9 +488,11 @@ interface ContentPageProps {
   highlightMode?: boolean
   bookmarksForChapter?: Bookmark[]
   onBookmarkClick?: (id: string, rect: DOMRect) => void
+  /** When set, word spans are clickable — calls back with (blockIdx, wordIdx) */
+  onWordClick?: (bi: number, wi: number) => void
 }
 
-function ContentPageView({ spec, highlightMode, bookmarksForChapter, onBookmarkClick }: ContentPageProps) {
+function ContentPageView({ spec, highlightMode, bookmarksForChapter, onBookmarkClick, onWordClick }: ContentPageProps) {
   const chapter     = book.chapters[spec.chapterIdx]
   const isFirstSub  = spec.subPage === 0
   const visibleBlocks = chapter.blocks.slice(spec.blockStart, spec.blockEnd)
@@ -529,6 +531,13 @@ function ContentPageView({ spec, highlightMode, bookmarksForChapter, onBookmarkC
       <div
         className="page-content-clip"
         style={spec.scrollable ? { overflowY: 'auto' } : undefined}
+        data-word-seek={onWordClick ? 'true' : undefined}
+        onClick={onWordClick ? (e: React.MouseEvent) => {
+          const el = e.target as HTMLElement
+          const bi = el.dataset?.bi
+          const wi = el.dataset?.wi
+          if (bi != null && wi != null) onWordClick(parseInt(bi, 10), parseInt(wi, 10))
+        } : undefined}
       >
         <div className="page-content-inner">
           {visibleBlocks.map((block, i) => {
@@ -690,6 +699,7 @@ export default function App() {
   // ── Word-highlight (karaoke) state ─────────────────────────────────────────
   const [highlightMode, setHighlightMode] = useState(false)
   const timingWordsRef  = useRef<TimingWord[]>([])          // current chapter timing
+  const audioCurrentRef = useRef(0)                         // mirror of audioCurrent for non-reactive reads
   const prevHlEl        = useRef<HTMLElement | null>(null)  // last highlighted span
   const rafRef          = useRef<number | null>(null)       // rAF handle
   const audioCurChRef   = useRef<number | null>(null)       // stable ref for onEnded closure
@@ -865,7 +875,7 @@ export default function App() {
     setPageIdx(prev => {
       if (!restoredRef.current) {
         restoredRef.current = true
-        const saved = parseInt(localStorage.getItem('sf-page') ?? '0', 10) || 0
+        const saved = parseInt(localStorage.getItem(`sf-page-${BOOK_ID}`) ?? '0', 10) || 0
         return Math.min(Math.max(0, saved), list.length - 1)
       }
       return Math.min(prev, list.length - 1)
@@ -902,11 +912,25 @@ export default function App() {
     }
   }, [runMeasurement])
 
-  // ── Save page position (only after restore, so initial render doesn't overwrite) ──
+  // ── Save page position + reading progress for library index ──────────────────
   useEffect(() => {
     if (!restoredRef.current) return
-    localStorage.setItem('sf-page', String(pageIdx))
-  }, [pageIdx])
+    localStorage.setItem(`sf-page-${BOOK_ID}`, String(pageIdx))
+    // Save structured progress so index.html can show % + current chapter
+    try {
+      const pct = pages.length > 1 ? Math.round(pageIdx / (pages.length - 1) * 100) : 0
+      const spec = pages[pageIdx]
+      const chIdx = spec?.chapterIdx ?? 0
+      const chTitle = book.chapters[chIdx]?.title ?? ''
+      localStorage.setItem(`atlas-pos-${BOOK_ID}`, JSON.stringify({
+        pct, chapter: chIdx, title: chTitle,
+        date: new Date().toISOString().slice(0, 10),
+        page: pageIdx,
+        totalPages: pages.length,
+        ...(audioCurCh !== null ? { audioTime: Math.round(audioCurrentRef.current), audioCh: audioCurCh } : {}),
+      }))
+    } catch {}
+  }, [pageIdx, pages])
 
   // ── Save bookmarks whenever they change ────────────────────────────────────
   useEffect(() => {
@@ -1267,6 +1291,7 @@ export default function App() {
     const ch = audioCurChRef.current
     if (!el || ch === null || el.currentTime <= 0) return
     const t = audioPartOffsetRef.current + el.currentTime
+    audioCurrentRef.current = t
     const newChTimes = { ...chTimesRef.current, [String(ch)]: t }
     chTimesRef.current = newChTimes
     const next: AudioState = {
@@ -1275,6 +1300,14 @@ export default function App() {
     }
     audioSavedRef.current = next
     saveAudioState(next)
+    // Persist audio time into atlas-pos so index.html shows fresh minute
+    try {
+      const raw = localStorage.getItem(`atlas-pos-${BOOK_ID}`)
+      const existing = raw ? JSON.parse(raw) : {}
+      localStorage.setItem(`atlas-pos-${BOOK_ID}`, JSON.stringify({
+        ...existing, audioTime: Math.round(t), audioCh: ch,
+      }))
+    } catch {}
   }, [])
 
   // Save on beforeunload (refresh / tab close)
@@ -1603,6 +1636,14 @@ export default function App() {
     })
   }, [])
 
+  // ── Word-click → seek audio to that word's timestamp ─────────────────────
+  const handleWordClick = useCallback((bi: number, wi: number) => {
+    if (audioCurCh === null || audioDuration <= 0) return
+    const word = timingWordsRef.current.find(w => w.bi === bi && w.wi === wi)
+    if (!word) return
+    seekAudio(word.s / audioDuration)
+  }, [audioCurCh, audioDuration, seekAudio])
+
   // Audio ±5s skip
   const skipAudio = useCallback((secs: number) => {
     const el = audioRef.current
@@ -1831,6 +1872,7 @@ export default function App() {
                     highlightMode={wordMode}
                     bookmarksForChapter={chapterBookmarks}
                     onBookmarkClick={handleBookmarkClick}
+                    onWordClick={wordMode && audioCurCh !== null ? handleWordClick : undefined}
                   />
                 </div>
               )}
@@ -1855,6 +1897,7 @@ export default function App() {
           if (el) {
             const globalT = audioPartOffsetRef.current + el.currentTime
             setAudioCurrent(globalT)
+            audioCurrentRef.current = globalT
             const ch = audioCurChRef.current
             if (ch !== null) {
               if (posTimerRef.current) clearTimeout(posTimerRef.current)

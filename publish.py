@@ -129,18 +129,28 @@ def build_catalog_entry(book_id: str) -> dict:
 
     audio_source = meta.get("audio_source", "")
 
+    # Chapter count (for reading stats on library cards)
+    chapter_count = 0
+    try:
+        md_path = BOOK_DEST / book_id / "book.md"
+        if md_path.exists():
+            chapter_count = len(_gen.md_to_chapters(md_path))
+    except Exception:
+        pass
+
     return {
-        "id":           book_id,
-        "title":        title,
-        "author":       author,
-        "year":         year,
-        "description":  description,
-        "cover_file":   cover_file,
-        "files":        files,
-        "audio":        audio_files,
-        "audio_source": audio_source,
-        "attribution":  attribution,
-        "published":    pub_date,
+        "id":            book_id,
+        "title":         title,
+        "author":        author,
+        "year":          year,
+        "description":   description,
+        "cover_file":    cover_file,
+        "files":         files,
+        "audio":         audio_files,
+        "audio_source":  audio_source,
+        "attribution":   attribution,
+        "published":     pub_date,
+        "chapter_count": chapter_count,
     }
 
 # ── Load book data from books-dest ─────────────────────────────────────────────
@@ -331,6 +341,19 @@ def _plural_pl(n: int) -> str:
     return "książek"
 
 def build_index(catalog: list[dict]) -> None:
+    # Sort alphabetically by title
+    catalog = sorted(catalog, key=lambda e: e.get("title", "").lower())
+
+    # Enrich existing entries with chapter_count if missing
+    for entry in catalog:
+        if not entry.get("chapter_count"):
+            bid = entry.get("id", "")
+            md_path = BOOK_DEST / bid / "book.md"
+            if md_path.exists():
+                try:
+                    entry["chapter_count"] = len(_gen.md_to_chapters(md_path))
+                except Exception:
+                    pass
     n = len(catalog)
 
     def card(entry: dict) -> str:
@@ -399,17 +422,35 @@ def build_index(catalog: list[dict]) -> None:
                 f'<a class="card-btn" href="{escape(pdf_url)}" target="_blank" rel="noreferrer">PDF</a>'
             )
 
+        chapter_count = entry.get("chapter_count", 0)
+        prog_bar = (
+            f'<div class="card-progress" data-prog-bid="{escape(bid)}">'
+            f'<div class="card-progress-fill" style="width:0%"></div></div>'
+        )
+        status_row = f'<div class="card-status-row" data-status-bid="{escape(bid)}"></div>'
+        actions = (
+            f'<div class="card-actions">'
+            f'<button class="action-btn action-done" data-bid="{escape(bid)}" '
+            f'onclick="toggleStatus(this,\'done\')" data-en="✓ Read" data-pl="✓ Przeczytana">✓ Read</button>'
+            f'<button class="action-btn action-next" data-bid="{escape(bid)}" '
+            f'onclick="toggleStatus(this,\'next\')" data-en="→ Next" data-pl="→ Następna">→ Next</button>'
+            f'</div>'
+        )
         return f"""
-  <article class="book-card" data-id="{escape(bid)}">
-    <div class="card-cover-wrap" style="position:relative">{cover_html}{bm_badge}{audio_badge_html}</div>
+  <article class="book-card" data-id="{escape(bid)}" data-chapters="{chapter_count}">
+    <div class="card-cover-wrap" style="position:relative">{cover_html}{bm_badge}{audio_badge_html}{prog_bar}</div>
     <div class="card-body">
       <div class="card-meta">
         {f'<span class="card-author">{author}</span>' if author else ''}
         {f'<span class="card-year">{year}</span>' if year else ''}
       </div>
       <h2 class="card-title">{title}</h2>
+      {status_row}
       {f'<p class="card-desc">{desc}</p>' if desc else ''}
-      <div class="card-links">{links_html}</div>
+      <div class="card-footer">
+        <div class="card-links">{links_html}</div>
+        {actions}
+      </div>
     </div>
   </article>"""
 
@@ -511,8 +552,9 @@ def build_index(catalog: list[dict]) -> None:
                    font-weight:600; line-height:1.2; color:var(--text); }}
     .card-desc {{ font-family:var(--font-b); font-size:0.88rem; line-height:1.5; color:var(--text-dim);
                   overflow:hidden; display:-webkit-box; -webkit-line-clamp:3;
-                  -webkit-box-orient:vertical; flex:1; }}
-    .card-links {{ display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.5rem; }}
+                  -webkit-box-orient:vertical; }}
+    .card-footer {{ margin-top:auto; padding-top:0.6rem; display:flex; flex-direction:column; gap:0.35rem; }}
+    .card-links {{ display:flex; gap:0.4rem; flex-wrap:wrap; }}
     .card-btn {{
       font-family:var(--font-h); font-size:7.5px; letter-spacing:0.15em; text-transform:uppercase;
       text-decoration:none; padding:5px 12px; border-radius:3px; border:1px solid var(--border);
@@ -528,6 +570,49 @@ def build_index(catalog: list[dict]) -> None:
       font-family:var(--font-h); font-size:7px; letter-spacing:0.1em;
       padding:3px 6px; border-radius:3px; pointer-events:none;
     }}
+
+    /* ── Reading progress ────────────────────────────── */
+    .card-progress {{
+      position:absolute; bottom:0; left:0; right:0; height:4px;
+      background:var(--gold-dim); z-index:3;
+    }}
+    .card-progress-fill {{ height:100%; background:var(--gold); transition:width 0.4s; }}
+
+    .card-status-row {{
+      font-family:var(--font-h); font-size:7.5px; letter-spacing:0.1em;
+      text-transform:uppercase; color:var(--text-dim); min-height:1.2em;
+    }}
+    .card-status-row.s-reading {{ color:var(--gold); }}
+    .card-status-row.s-done    {{ color:#4a9c6a; }}
+    .card-status-row.s-next    {{ color:#7b6fcf; }}
+    [data-theme="dark"] .card-status-row.s-done {{ color:#6ec98a; }}
+    [data-theme="dark"] .card-status-row.s-next {{ color:#a89de0; }}
+
+    .card-actions {{
+      display:flex; gap:0.35rem;
+    }}
+    .action-btn {{
+      font-family:var(--font-h); font-size:7px; letter-spacing:0.1em;
+      text-transform:uppercase; padding:4px 9px; border-radius:3px;
+      border:1px solid var(--border); color:var(--text-dim); background:none;
+      cursor:pointer; transition:all 0.15s; white-space:nowrap;
+    }}
+    .action-btn:hover {{ color:var(--gold); border-color:var(--gold-dim); background:var(--gold-dim); }}
+    .action-btn.active.action-done {{ color:#4a9c6a; border-color:rgba(74,156,106,0.35); background:rgba(74,156,106,0.12); }}
+    .action-btn.active.action-next {{ color:#7b6fcf; border-color:rgba(123,111,207,0.35); background:rgba(123,111,207,0.12); }}
+    [data-theme="dark"] .action-btn.active.action-done {{ color:#6ec98a; border-color:rgba(110,201,138,0.3); background:rgba(110,201,138,0.1); }}
+    [data-theme="dark"] .action-btn.active.action-next {{ color:#a89de0; border-color:rgba(168,157,224,0.3); background:rgba(168,157,224,0.1); }}
+
+    /* ── Filter tabs ─────────────────────────────────── */
+    .filter-tabs {{ display:flex; gap:0.5rem; margin-bottom:1.5rem; flex-wrap:wrap; }}
+    .filter-tab {{
+      font-family:var(--font-h); font-size:7.5px; letter-spacing:0.15em;
+      text-transform:uppercase; padding:5px 14px; border-radius:3px;
+      border:1px solid var(--border); color:var(--text-dim); background:none;
+      cursor:pointer; transition:all 0.15s;
+    }}
+    .filter-tab:hover {{ color:var(--gold); border-color:var(--gold-dim); }}
+    .filter-tab.active {{ background:var(--gold-dim); color:var(--gold); border-color:var(--gold-dim); }}
     .card-audio-badge {{
       position:absolute; top:0.5rem; left:0.5rem; z-index:2;
       display:inline-flex; align-items:center; gap:4px;
@@ -580,6 +665,12 @@ def build_index(catalog: list[dict]) -> None:
             data-en="{n} title{'s' if n != 1 else ''}"
             data-pl="{n} {_plural_pl(n)}">{n} title{'s' if n != 1 else ''}</span>
     </div>
+    <div class="filter-tabs" id="filter-tabs">
+      <button class="filter-tab active" onclick="filterStatus(this,'')" data-en="All" data-pl="Wszystkie">All</button>
+      <button class="filter-tab" onclick="filterStatus(this,'reading')" data-en="Reading" data-pl="Czytam">Reading</button>
+      <button class="filter-tab" onclick="filterStatus(this,'done')" data-en="Read" data-pl="Przeczytane">Read</button>
+      <button class="filter-tab" onclick="filterStatus(this,'next')" data-en="Next" data-pl="Następna">Next</button>
+    </div>
     <div class="books-grid" id="grid">
 {cards_html}
     </div>
@@ -595,20 +686,14 @@ def build_index(catalog: list[dict]) -> None:
     function setLang(lang) {{
       document.documentElement.lang = lang;
       localStorage.setItem('atlas-lang', lang);
-
-      // Update text nodes
       document.querySelectorAll('[data-en]').forEach(el => {{
         el.textContent = el.dataset[lang] || el.dataset.en;
       }});
-      // Update placeholders
       document.querySelectorAll('[data-en-placeholder]').forEach(el => {{
         el.placeholder = lang === 'pl' ? el.dataset.plPlaceholder : el.dataset.enPlaceholder;
       }});
-      // Update <title>
       const t = document.querySelector('title');
       if (t) t.textContent = t.dataset[lang] || t.dataset.en;
-
-      // Toggle active class
       document.getElementById('btn-en').classList.toggle('active', lang === 'en');
       document.getElementById('btn-pl').classList.toggle('active', lang === 'pl');
     }}
@@ -628,21 +713,12 @@ def build_index(catalog: list[dict]) -> None:
       if (saved) document.documentElement.dataset.theme = saved;
     }})();
 
-    // ── Search ─────────────────────────────────────────────────────────────────
-    function filterBooks(q) {{
-      q = q.toLowerCase().trim();
-      document.querySelectorAll('.book-card').forEach(card => {{
-        card.classList.toggle('hidden', q.length > 1 && !card.textContent.toLowerCase().includes(q));
-      }});
-    }}
-
     // ── Bookmark badges ────────────────────────────────────────────────────────
     (function() {{
       document.querySelectorAll('.bm-badge[data-bid]').forEach(function(badge) {{
         var bid = badge.dataset.bid;
-        var key = 'sf-bm-' + bid;
         try {{
-          var bms = JSON.parse(localStorage.getItem(key) || '[]');
+          var bms = JSON.parse(localStorage.getItem('sf-bm-' + bid) || '[]');
           if (bms.length > 0) {{
             badge.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" width="10" height="10" xmlns="http://www.w3.org/2000/svg"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg> ' + bms.length;
             badge.style.display = '';
@@ -650,6 +726,125 @@ def build_index(catalog: list[dict]) -> None:
         }} catch(e) {{}}
       }});
     }})();
+
+    // ── Reading progress ────────────────────────────────────────────────────────
+    var _activeFilter = '';
+
+    function _getProgress(bid) {{
+      try {{ return JSON.parse(localStorage.getItem('atlas-pos-' + bid) || 'null'); }} catch(e) {{ return null; }}
+    }}
+    function _fmtTime(s) {{
+      if (!s || s <= 0) return '';
+      var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }}
+    function _getStatus(bid) {{
+      return localStorage.getItem('atlas-status-' + bid) || '';
+    }}
+    function _effectiveStatus(bid) {{
+      var st = _getStatus(bid);
+      if (st) return st;
+      var pos = _getProgress(bid);
+      if (pos && pos.pct > 0 && pos.pct < 100) return 'reading';
+      if (pos && pos.pct >= 100) return 'reading';  // show as reading until explicitly marked done
+      return '';
+    }}
+
+    function loadBookProgress() {{
+      var lang = localStorage.getItem('atlas-lang') || 'en';
+      // Progress bars
+      document.querySelectorAll('[data-prog-bid]').forEach(function(bar) {{
+        var bid = bar.dataset.progBid;
+        var st  = _getStatus(bid);
+        var pos = _getProgress(bid);
+        var pct = (st === 'done') ? 100 : (pos ? pos.pct : 0);
+        bar.querySelector('.card-progress-fill').style.width = pct + '%';
+      }});
+      // Status rows
+      document.querySelectorAll('[data-status-bid]').forEach(function(row) {{
+        var bid      = row.dataset.statusBid;
+        var st       = _getStatus(bid);
+        var pos      = _getProgress(bid);
+        var card     = row.closest('.book-card');
+        var totalCh  = card ? parseInt(card.dataset.chapters || '0', 10) : 0;
+        var text = '', cls = '';
+        // Build chapter info string when we have position + chapter count
+        function _chInfo() {{
+          if (!pos || totalCh < 2) return '';
+          var cur = (pos.chapter || 0) + 1;
+          return lang === 'pl'
+            ? ('Rozdział ' + cur + ' z ' + totalCh)
+            : ('Chapter '  + cur + ' of ' + totalCh);
+        }}
+        if (st === 'done') {{
+          text = lang === 'pl' ? '✓ Przeczytana' : '✓ Read';
+          if (totalCh > 1) text += ' · ' + totalCh + ' ' + (lang === 'pl' ? 'rozdziałów' : 'chapters');
+          cls  = 's-done';
+        }} else if (st === 'next') {{
+          text = lang === 'pl' ? '→ Następna' : '→ Next';
+          if (pos && pos.pct > 0) {{
+            text += ' · ' + pos.pct + '%';
+            var ci = _chInfo(); if (ci) text += ' · ' + ci;
+          }}
+          cls  = 's-next';
+        }} else if (pos && pos.pct > 0) {{
+          text = (lang === 'pl' ? '▶ Czytam · ' : '▶ Reading · ') + pos.pct + '%';
+          var ci = _chInfo(); if (ci) text += ' · ' + ci;
+          if (pos.page > 0 && pos.totalPages > 0) text += ' · ' + (lang === 'pl' ? 'str. ' : 'p. ') + pos.page + '/' + pos.totalPages;
+          var at = _fmtTime(pos.audioTime); if (at) text += ' · ♪ ' + at;
+          cls  = 's-reading';
+        }} else {{
+          // Fallback: old-style sf-page-{{bid}} key — at least show "in progress"
+          var sfPage = parseInt(localStorage.getItem('sf-page-' + bid) || '0', 10);
+          if (sfPage > 0) {{
+            text = lang === 'pl' ? '▶ W trakcie' : '▶ In progress';
+            cls  = 's-reading';
+          }}
+        }}
+        row.textContent  = text;
+        row.className    = 'card-status-row' + (cls ? ' ' + cls : '');
+      }});
+      // Action buttons
+      document.querySelectorAll('.action-btn[data-bid]').forEach(function(btn) {{
+        var bid = btn.dataset.bid;
+        var st  = _getStatus(bid);
+        if (btn.classList.contains('action-done')) btn.classList.toggle('active', st === 'done');
+        if (btn.classList.contains('action-next')) btn.classList.toggle('active', st === 'next');
+      }});
+    }}
+
+    function toggleStatus(btn, newStatus) {{
+      var bid     = btn.dataset.bid;
+      var current = _getStatus(bid);
+      var next    = (current === newStatus) ? '' : newStatus;
+      if (next) {{ localStorage.setItem('atlas-status-' + bid, next); }}
+      else      {{ localStorage.removeItem('atlas-status-' + bid); }}
+      loadBookProgress();
+      applyFilters();
+    }}
+
+    // ── Filters ────────────────────────────────────────────────────────────────
+    function filterStatus(btn, filter) {{
+      _activeFilter = filter;
+      document.querySelectorAll('.filter-tab').forEach(b => b.classList.toggle('active', b === btn));
+      applyFilters();
+    }}
+
+    function applyFilters() {{
+      var q = (document.getElementById('search').value || '').toLowerCase().trim();
+      document.querySelectorAll('.book-card').forEach(function(card) {{
+        var bid = card.dataset.id;
+        var eff = _effectiveStatus(bid);
+        var matchFilter = !_activeFilter || eff === _activeFilter;
+        var matchSearch = q.length < 2 || card.textContent.toLowerCase().includes(q);
+        card.classList.toggle('hidden', !matchFilter || !matchSearch);
+      }});
+    }}
+
+    function filterBooks(q) {{ applyFilters(); }}
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+    (function() {{ loadBookProgress(); }})();
   </script>
 </body>
 </html>"""
