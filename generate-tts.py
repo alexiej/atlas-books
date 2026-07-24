@@ -6,8 +6,8 @@ Reads book content from books-source/<id>/, generates MP3 + word-timing data
 using Microsoft Azure edge-tts (free, no API key required).
 
 Saves:
-  books-source/<id>/<id>-<ch>.mp3       — audio files
-  books-source/<id>/tts-timing-pl.json  — timing sidecar (auto-read by generate.py)
+  books-source/<id>/ch01.mp3, ch02.mp3   — audio files (one per chapter)
+  books-source/<id>/tts-timing-pl.json   — timing sidecar (auto-read by generate.py)
 
 Press Ctrl+C at any time — completed chapters are saved automatically.
 
@@ -19,6 +19,8 @@ Usage:
   python generate-tts.py 20-000-mil-podmorskiej-zeglugi --rate "+20%"
   python generate-tts.py 20-000-mil-podmorskiej-zeglugi --quality fast
   python generate-tts.py 20-000-mil-podmorskiej-zeglugi --replace
+  python generate-tts.py 20-000-mil-podmorskiej-zeglugi --fix-names
+  python generate-tts.py 20-000-mil-podmorskiej-zeglugi --fix-names --src ~/Downloads
   python generate-tts.py --list-voices
 
 Quality modes:
@@ -45,6 +47,7 @@ import argparse
 import asyncio
 import json
 import re
+import shutil
 import signal
 import sys
 import time
@@ -208,6 +211,111 @@ async def _synth_fast(text: str, voice: str, rate: str, pitch: str, volume: str
     return b"".join(audio), []
 
 # ── Main generation loop ───────────────────────────────────────────────────────
+def fix_names(book_id: str, src_dir: Path | None = None) -> None:
+    """Rename old-style MP3s to ch{NN}.mp3 / book.mp3 format.
+
+    Patterns recognised:
+      {book_id}-ch{NN}[-rest].mp3  →  ch{NN}.mp3
+      {book_id}[-rest].mp3         →  book.mp3
+      ch{NN}.mp3 / book.mp3        →  already correct
+
+    If --src is given, files are moved from that directory into
+    books-source/{book_id}/ (renaming along the way).
+    Otherwise, files already in books-source/{book_id}/ are renamed in-place.
+    """
+    book_dir = BOOK_SOURCE / book_id
+    book_dir.mkdir(parents=True, exist_ok=True)
+
+    scan_dir = src_dir if src_dir else book_dir
+    if not scan_dir.exists():
+        err(f"Source directory not found: {scan_dir}")
+        sys.exit(1)
+
+    print()
+    print(f"  {bold(gold('★ ATLAS BOOKS — FIX NAMES'))}: {bold(book_id)}")
+    if src_dir:
+        print(f"  {dim('From:')} {dim(str(src_dir))}")
+        print(f"  {dim('To:')}   {dim(str(book_dir))}")
+    print()
+
+    mp3s = sorted(scan_dir.glob("*.mp3"))
+    if not mp3s:
+        warn(f"No MP3 files found in: {scan_dir}")
+        if not src_dir:
+            info(f"Tip: use --src /path/to/files  to import from another directory")
+        print()
+        return
+
+    renamed = 0
+    skipped = 0
+
+    for mp3 in mp3s:
+        stem = mp3.stem
+
+        # ── Already correct format ─────────────────────────────────────
+        if re.match(r'^ch\d+$', stem) or stem == "book":
+            if src_dir:
+                dest = book_dir / mp3.name
+                if dest.exists():
+                    warn(f"{mp3.name} already exists in dest — skipping")
+                    skipped += 1
+                else:
+                    shutil.move(str(mp3), dest)
+                    ok(f"{mp3.name}  →  (moved to books-source/{book_id}/)")
+                    renamed += 1
+            else:
+                info(f"Already correct: {mp3.name}")
+                skipped += 1
+            continue
+
+        # ── Try {book_id}-ch{NN}*.mp3 ─────────────────────────────────
+        m = re.match(rf'^{re.escape(book_id)}-ch(\d+)', stem)
+        if not m:
+            # Generic: find -ch{NN} or ch{NN} at start
+            m = re.search(r'(?:^|-)ch(\d+)', stem)
+
+        if m:
+            ch_num   = int(m.group(1))
+            new_name = f"ch{ch_num:02d}.mp3"
+            dest     = book_dir / new_name
+            if dest.exists():
+                warn(f"{new_name} already exists — skipping {mp3.name}")
+                skipped += 1
+                continue
+            if src_dir:
+                shutil.move(str(mp3), dest)
+            else:
+                mp3.rename(dest)
+            ok(f"{mp3.name}  →  {new_name}")
+            renamed += 1
+            continue
+
+        # ── Try {book_id}[-rest].mp3  →  book.mp3 ─────────────────────
+        if stem == book_id or stem.startswith(f"{book_id}-") or stem.startswith(f"{book_id}_"):
+            new_name = "book.mp3"
+            dest     = book_dir / new_name
+            if dest.exists():
+                warn(f"book.mp3 already exists — skipping {mp3.name}")
+                skipped += 1
+                continue
+            if src_dir:
+                shutil.move(str(mp3), dest)
+            else:
+                mp3.rename(dest)
+            ok(f"{mp3.name}  →  {new_name}")
+            renamed += 1
+            continue
+
+        warn(f"Cannot determine chapter number — skipping: {mp3.name}")
+        skipped += 1
+
+    print()
+    ok(f"Renamed/moved {renamed} file(s)  (skipped {skipped})")
+    if renamed:
+        info(f"Next: python generate.py {book_id}  # process audio → audio/")
+    print()
+
+
 async def run(
     book_id:      str,
     voice:        str,
@@ -281,12 +389,8 @@ async def run(
             continue
         ch_id    = ch.get("id", f"ch{i+1}")
         ch_num   = ch.get("number", i + 1)
-        mp3_name = f"{book_id}-ch{ch_num:02d}-{ch_id}.mp3"
-        # Also accept old naming (book_id-ch_id.mp3) for backward compat
-        old_mp3  = f"{book_id}-{ch_id}.mp3"
-        already  = ch_id in sidecar["chapters"] and (
-            (book_dir / mp3_name).exists() or (book_dir / old_mp3).exists()
-        )
+        mp3_name = f"ch{ch_num:02d}.mp3"
+        already  = ch_id in sidecar["chapters"] and (book_dir / mp3_name).exists()
         if already and not replace:
             continue
         to_do.append(i)
@@ -299,7 +403,7 @@ async def run(
     print(f"  Source:  {gray(source)}  ({len(chapters)} chapters)")
     print(f"  Voice:   {cyan(voice)}   Rate: {rate}   Pitch: {pitch}")
     print(f"  Quality: {bold('full (audio + word timing)') if quality == 'full' else bold('fast (audio only)')}")
-    print(f"  Output:  books-source/{book_id}/  →  tts-timing-{lang}.json")
+    print(f"  Output:  books-source/{book_id}/ch{{NN}}.mp3  →  tts-timing-{lang}.json")
     print()
 
     if not to_do:
@@ -322,11 +426,11 @@ async def run(
         if _stop:
             break
 
-        ch      = chapters[ch_idx]
+        ch       = chapters[ch_idx]
         ch_id    = ch.get("id", f"ch{ch_idx + 1}")
         ch_num   = ch.get("number", ch_idx + 1)
         ch_title = ch.get("title", f"Chapter {ch_num}")
-        mp3_name = f"{book_id}-ch{ch_num:02d}-{ch_id}.mp3"
+        mp3_name = f"ch{ch_num:02d}.mp3"
         mp3_path = book_dir / mp3_name
 
         print(f"  {bold(gold(f'[{seq+1:>3}/{len(to_do)}]'))}  {bold(ch_title)}")
@@ -346,7 +450,20 @@ async def run(
                 print()
                 continue
 
-            audio_bytes, timing_raw = await synth(text, voice, rate, pitch, volume)
+            word_count = len(text.split())
+            print(f"  {gray('synthesising')} {dim(str(word_count) + ' words')} …")
+            sys.stdout.flush()
+
+            try:
+                audio_bytes, timing_raw = await asyncio.wait_for(
+                    synth(text, voice, rate, pitch, volume),
+                    timeout=600,  # 10 min hard limit
+                )
+            except asyncio.TimeoutError:
+                err(f"Chapter {ch_id}: TTS timed out (>10 min) — skipping")
+                errors.append(ch_id)
+                print()
+                continue
 
             if not audio_bytes:
                 err(f"Chapter {ch_id}: got empty audio — skipping")
@@ -412,8 +529,8 @@ async def run(
 
     print()
     print(f"  {gray('Next step:')}")
-    print(f"    {cyan('python generate.py ' + book_id + ' --no-tts')}  "
-          f"{gray('# build HTML with this audio')}")
+    print(f"    {cyan('python generate.py ' + book_id)}  "
+          f"{gray('# process audio → audio/ + tts-audio-{lang}.json')}")
     print()
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -458,6 +575,10 @@ def main() -> None:
                    help="Chapter range: '1-10', '3,7', 'all'")
     p.add_argument("--replace",      action="store_true",
                    help="Re-generate chapters that already have audio")
+    p.add_argument("--fix-names",    action="store_true",
+                   help="Rename existing MP3s to ch{NN}.mp3 / book.mp3 format, then exit")
+    p.add_argument("--src",          default=None, metavar="DIR",
+                   help="Source directory with MP3s to rename + move into books-source/{book_id}/")
     p.add_argument("--list-voices",  action="store_true")
     p.add_argument("-h", "--help",   action="store_true")
     args = p.parse_args()
@@ -468,6 +589,11 @@ def main() -> None:
 
     if args.list_voices:
         cmd_list_voices()
+        sys.exit(0)
+
+    if args.fix_names:
+        src = Path(args.src).expanduser() if args.src else None
+        fix_names(args.book_id, src_dir=src)
         sys.exit(0)
 
     # Check edge-tts is available

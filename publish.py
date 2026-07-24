@@ -23,7 +23,6 @@ import generate as _gen   # shared parsing + rendering helpers
 
 PROJECT_DIR  = Path(__file__).resolve().parent
 BOOK_SOURCE  = PROJECT_DIR / "books-source"
-BOOK_DEST    = PROJECT_DIR / "books-dest"
 PUBLIC_DIR   = PROJECT_DIR / "public"
 CATALOG_PATH = PUBLIC_DIR / "catalog.json"
 
@@ -54,37 +53,27 @@ def save_catalog(catalog: list[dict]) -> None:
     CATALOG_PATH.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def _read_meta(book_id: str) -> dict:
-    """Read metadata config for a book.
-
-    Priority: books-dest/<id>/config.json  >  books-source/<id>/config.json  >  published HTML.
-    """
-    for cfg_path in [
-        BOOK_DEST   / book_id / "config.json",
-        BOOK_SOURCE / book_id / "config.json",
-    ]:
-        if cfg_path.exists():
-            try:
-                return json.loads(cfg_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-    # Last resort: parse from published HTML
-    html_path = PUBLIC_DIR / f"{book_id}.html"
-    if html_path.exists():
-        content = html_path.read_text(encoding="utf-8")
-        m = re.search(r'window\.__BOOK_DATA__\s*=\s*(\{.*?\});', content, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(1))
-            except Exception:
-                pass
+    """Read metadata config for a book from books-source/<id>/config.json."""
+    cfg_path = BOOK_SOURCE / book_id / "config.json"
+    if cfg_path.exists():
+        try:
+            return json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
     return {"id": book_id, "title": book_id}
 
 def _cover_names() -> list[str]:
     return ["cover.jpg", "cover.png", "book.jpg", "book.png"]
 
 def build_catalog_entry(book_id: str) -> dict:
-    dest = BOOK_DEST / book_id
-    meta = _read_meta(book_id)
+    """Build catalog entry for book_id.
+
+    Paths in 'files' and 'cover_file' are relative to public/, matching the
+    new subdirectory layout: public/{book_id}/index.html, etc.
+    """
+    book_dir = BOOK_SOURCE / book_id
+    pub_dir  = PUBLIC_DIR / book_id
+    meta     = _read_meta(book_id)
 
     title       = meta.get("title", book_id)
     author      = meta.get("author", "")
@@ -92,38 +81,33 @@ def build_catalog_entry(book_id: str) -> dict:
     description = meta.get("description", "")
     pub_date    = meta.get("published_date") or str(date.today())
 
-    # Find which files were generated
+    # Find which files exist in public/{book_id}/
     files: dict[str, str] = {}
-    for suffix, key in [(".html", "html"), (".epub", "epub"), (".pdf", "pdf")]:
-        if dest.is_dir() and (dest / f"{book_id}{suffix}").exists():
-            files[key] = f"{book_id}{suffix}"
+    if (pub_dir / "index.html").exists():
+        files["html"] = f"{book_id}/index.html"
+    if (pub_dir / f"{book_id}.epub").exists():
+        files["epub"] = f"{book_id}/{book_id}.epub"
+    if (pub_dir / f"{book_id}.pdf").exists():
+        files["pdf"] = f"{book_id}/{book_id}.pdf"
 
-    # Audio files (match any .mp3 in the dest folder)
+    # Audio files in public/{book_id}/audio/
     audio_files: list[str] = []
-    if dest.is_dir():
-        audio_files = sorted(f.name for f in dest.glob("*.mp3"))
+    audio_pub = pub_dir / "audio"
+    if audio_pub.is_dir():
+        audio_files = sorted(f"{book_id}/audio/{f.name}" for f in audio_pub.glob("*.mp3"))
 
-    # Cover: store filename in catalog (not base64)
+    # Cover: relative path in public/
     cover_file = ""
-    if dest.is_dir():
-        for name in _cover_names():
-            if (dest / name).exists():
-                ext = Path(name).suffix
-                cover_file = f"{book_id}-cover{ext}"
-                break
-    if not cover_file:
-        # Check books-source for a cover
-        for name in _cover_names():
-            if (BOOK_SOURCE / book_id / name).exists():
-                ext = Path(name).suffix
-                cover_file = f"{book_id}-cover{ext}"
-                break
+    for name in _cover_names():
+        ext = Path(name).suffix
+        if (pub_dir / f"cover{ext}").exists():
+            cover_file = f"{book_id}/cover{ext}"
+            break
 
-    # Attribution (for HTTP links in the library)
-    # Supplement with relative filenames when no external URL is set
+    # Attribution
     attribution = dict(meta.get("attribution", {}))
     if not attribution.get("epub_url") and files.get("epub"):
-        attribution["epub_url"] = files["epub"]   # e.g. "arystoteles-polityka.epub"
+        attribution["epub_url"] = files["epub"]
     if not attribution.get("pdf_url") and files.get("pdf"):
         attribution["pdf_url"] = files["pdf"]
 
@@ -132,7 +116,7 @@ def build_catalog_entry(book_id: str) -> dict:
     # Chapter count (for reading stats on library cards)
     chapter_count = 0
     try:
-        md_path = BOOK_DEST / book_id / "book.md"
+        md_path = book_dir / "book.md"
         if md_path.exists():
             chapter_count = len(_gen.md_to_chapters(md_path))
     except Exception:
@@ -153,24 +137,27 @@ def build_catalog_entry(book_id: str) -> dict:
         "chapter_count": chapter_count,
     }
 
-# ── Load book data from books-dest ─────────────────────────────────────────────
-def load_book_from_dest(book_id: str) -> dict:
-    """Read book.md + config.json + cover + tts-audio from books-dest/<id>/.
+# ── Load book data from books-source ────────────────────────────────────────────
+def load_book_from_source(book_id: str) -> dict:
+    """Read book.md + config.json + cover + tts audio from books-source/<id>/.
 
-    Raises FileNotFoundError when book hasn't been generated yet.
+    Audio paths in tts-audio-{lang}.json are relative to book_dir (e.g. "audio/ch01-part000.mp3").
+    At publish time they are re-mapped to web paths relative to public/{book_id}/.
+
+    Raises FileNotFoundError when book.md or config.json is missing.
     Returns a book_data dict ready for inject_into_template / make_epub / make_pdf.
     """
-    dest = BOOK_DEST / book_id
-    md_path  = dest / "book.md"
-    cfg_path = dest / "config.json"
+    book_dir = BOOK_SOURCE / book_id
+    md_path  = book_dir / "book.md"
+    cfg_path = book_dir / "config.json"
 
     if not md_path.exists():
         raise FileNotFoundError(
-            f"books-dest/{book_id}/book.md not found — run: python generate.py {book_id}"
+            f"books-source/{book_id}/book.md not found — run: python generate.py {book_id}"
         )
     if not cfg_path.exists():
         raise FileNotFoundError(
-            f"books-dest/{book_id}/config.json not found — run: python generate.py {book_id}"
+            f"books-source/{book_id}/config.json not found"
         )
 
     config   = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -180,7 +167,7 @@ def load_book_from_dest(book_id: str) -> dict:
     # Embed cover as base64 (template expects data-URI or empty string)
     cover = ""
     for name in _cover_names():
-        p = dest / name
+        p = book_dir / name
         if p.exists():
             mime  = "image/jpeg" if p.suffix.lower() in (".jpg", ".jpeg") else "image/png"
             data  = base64.b64encode(p.read_bytes()).decode()
@@ -188,10 +175,10 @@ def load_book_from_dest(book_id: str) -> dict:
             break
 
     # Re-apply audio + timing.
-    # Priority: tts-transcript-align-{lang}.json (written by analyze-tts.py — has timing + seek_to)
-    #           tts-audio-{lang}.json             (written by generate.py    — basic audio list)
-    align_path = dest / f"tts-transcript-align-{lang}.json"
-    tts_path   = dest / f"tts-audio-{lang}.json"
+    # Priority: tts-transcript-align-{lang}.json (analyze-tts.py — has timing + seek_to)
+    #           tts-audio-{lang}.json             (generate.py    — basic audio + paths)
+    align_path = book_dir / f"tts-transcript-align-{lang}.json"
+    tts_path   = book_dir / f"tts-audio-{lang}.json"
     align_map: dict = {}
     tts_map:   dict = {}
     try:
@@ -204,18 +191,20 @@ def load_book_from_dest(book_id: str) -> dict:
             tts_map = json.loads(tts_path.read_text(encoding="utf-8"))
     except Exception:
         pass
+
     if align_map or tts_map:
-        for ch in chapters:
-            ch_id = ch.get("id", "")
-            # If the align file exists, use it exclusively (tts-audio-pl.json may have
-            # stale/corrupt data from old analyze-tts.py runs).  Only fall back to
-            # tts_map when no align file exists at all (i.e. analyze-tts.py hasn't run yet).
-            entry = align_map.get(ch_id) if align_map else tts_map.get(ch_id)
+        for i, ch in enumerate(chapters):
+            ch_id  = ch.get("id", "")
+            ch_key = f"ch{i+1:02d}"
+            # All maps keyed by ch{NN}; fall back to semantic id for legacy files
+            entry = (align_map or tts_map).get(ch_key) or (align_map or tts_map).get(ch_id)
             if not entry:
                 continue
             audio = entry.get("audio")
             if audio:
-                ch[f"audio_{lang}"] = audio
+                # Audio paths stored as relative to book_dir (e.g. "audio/ch01-part000.mp3")
+                # Re-map to web path relative to public/{book_id}/: just use the same relative path
+                ch[f"audio_{lang}"] = audio  # serve from public/{book_id}/audio/...
             seek_to = entry.get("seek_to")
             if seek_to is not None:
                 ch[f"seek_to_{lang}"] = seek_to
@@ -228,92 +217,90 @@ def load_book_from_dest(book_id: str) -> dict:
 
 # ── Publish one book ───────────────────────────────────────────────────────────
 def publish_book(book_id: str, do_epub: bool = True, do_pdf: bool = True) -> bool:
-    """Load from books-dest, generate HTML/EPUB/PDF, copy everything to public/."""
-    dest = BOOK_DEST / book_id
-    if not dest.exists():
-        err(f"books-dest/{book_id}/ not found — run: python generate.py {book_id}")
+    """Load from books-source, generate HTML/EPUB/PDF, copy everything to public/{book_id}/."""
+    book_dir = BOOK_SOURCE / book_id
+    if not book_dir.exists():
+        err(f"books-source/{book_id}/ not found — run: python generate.py {book_id}")
         return False
 
-    # 1. Load book data from dest (book.md + config + cover + tts-audio)
-    step("Loading from books-dest")
+    # 1. Load book data from source (book.md + config + cover + tts-audio)
+    step("Loading from books-source")
     try:
-        book_data = load_book_from_dest(book_id)
+        book_data = load_book_from_source(book_id)
     except FileNotFoundError as e:
         err(str(e)); return False
 
     lang = book_data.get("lang", "pl")
     ok(f"Title: {book_data.get('title','')}  ·  {len(book_data.get('chapters',[]))} chapters")
 
-    # Patch attribution with relative local-file URLs
+    # Output directory: public/{book_id}/
+    pub_book_dir = PUBLIC_DIR / book_id
+    pub_book_dir.mkdir(parents=True, exist_ok=True)
+
+    # Patch attribution with web-relative URLs (relative to public/)
     attr = book_data.setdefault("attribution", {})
     if not attr.get("epub_url"):
-        attr["epub_url"] = f"{book_id}.epub"
-    if not attr.get("pdf_url") and (BOOK_SOURCE / book_id / "book.pdf").exists():
-        attr["pdf_url"] = f"{book_id}.pdf"
+        attr["epub_url"] = f"{book_id}/{book_id}.epub"
+    if not attr.get("pdf_url") and (book_dir / "book.pdf").exists():
+        attr["pdf_url"] = f"{book_id}/{book_id}.pdf"
 
-    # 2. Generate HTML viewer
+    # 2. Generate HTML viewer → public/{book_id}/index.html
     step("Building HTML viewer")
     if not _gen.TEMPLATE_PATH.exists():
         err(f"Template not found: {_gen.TEMPLATE_PATH}")
         err("Run: npm run build-viewer   (builds public/book-template.html)")
         return False
-    out_html = dest / f"{book_id}.html"
+    out_html = pub_book_dir / "index.html"
     _gen.inject_into_template(book_data, _gen.TEMPLATE_PATH, out_html)
-    ok(f"HTML: {out_html.name}  ({out_html.stat().st_size // 1024} kB)")
+    ok(f"HTML: {book_id}/index.html  ({out_html.stat().st_size // 1024} kB)")
 
-    # 3. EPUB
+    # 3. EPUB → public/{book_id}/{book_id}.epub
     if do_epub:
-        src_epub = BOOK_SOURCE / book_id / "book.epub"
-        out_epub = dest / f"{book_id}.epub"
+        src_epub = book_dir / "book.epub"
+        out_epub = pub_book_dir / f"{book_id}.epub"
         if src_epub.exists():
             step("Copying EPUB from source")
             shutil.copy2(src_epub, out_epub)
-            ok(f"EPUB: {out_epub.name}  ({out_epub.stat().st_size // 1024} kB)")
+            ok(f"EPUB: {book_id}/{book_id}.epub  ({out_epub.stat().st_size // 1024} kB)")
         else:
             step("Building EPUB")
             _gen.make_epub(book_data, out_epub)
 
-    # 4. PDF
+    # 4. PDF → public/{book_id}/{book_id}.pdf
     if do_pdf:
-        src_pdf = BOOK_SOURCE / book_id / "book.pdf"
-        out_pdf = dest / f"{book_id}.pdf"
+        src_pdf = book_dir / "book.pdf"
+        out_pdf = pub_book_dir / f"{book_id}.pdf"
         if src_pdf.exists():
             step("Copying PDF from source")
             shutil.copy2(src_pdf, out_pdf)
-            ok(f"PDF: {out_pdf.name}  ({out_pdf.stat().st_size // 1024} kB)")
+            ok(f"PDF: {book_id}/{book_id}.pdf  ({out_pdf.stat().st_size // 1024} kB)")
         else:
             step("Building PDF")
             _gen.make_pdf(book_data, out_pdf)
 
-    # 5. Copy everything to public/
-    PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+    # 5. Copy cover → public/{book_id}/cover{ext}
     copied: list[str] = []
-
-    for name in [f"{book_id}.html", f"{book_id}.epub", f"{book_id}.pdf",
-                 f"{book_id}.print.html", f"{book_id}.mobi"]:
-        src = dest / name
-        if src.exists():
-            shutil.copy2(src, PUBLIC_DIR / name)
-            copied.append(name)
-
-    for mp3 in sorted(dest.glob("*.mp3")):
-        shutil.copy2(mp3, PUBLIC_DIR / mp3.name)
-        copied.append(mp3.name)
-
     for name in _cover_names():
-        src = dest / name
-        if not src.exists():
-            src = BOOK_SOURCE / book_id / name
+        src = book_dir / name
         if src.exists():
-            ext      = Path(name).suffix
-            dst_name = f"{book_id}-cover{ext}"
-            shutil.copy2(src, PUBLIC_DIR / dst_name)
-            copied.append(dst_name)
+            ext = Path(name).suffix
+            dst = pub_book_dir / f"cover{ext}"
+            shutil.copy2(src, dst)
+            copied.append(f"cover{ext}")
             break
 
-    ok(f"Copied {len(copied)} files → public/  ({book_id})")
+    # 6. Copy audio → public/{book_id}/audio/
+    src_audio = book_dir / "audio"
+    if src_audio.is_dir():
+        pub_audio = pub_book_dir / "audio"
+        pub_audio.mkdir(parents=True, exist_ok=True)
+        for mp3 in sorted(src_audio.glob("*.mp3")):
+            shutil.copy2(mp3, pub_audio / mp3.name)
+            copied.append(f"audio/{mp3.name}")
 
-    # 6. Update catalog + mark published
+    ok(f"Copied {len(copied)} asset files → public/{book_id}/")
+
+    # 7. Update catalog + mark published
     catalog = load_catalog()
     entry   = build_catalog_entry(book_id)
     catalog = [e for e in catalog if e["id"] != book_id]
@@ -322,15 +309,15 @@ def publish_book(book_id: str, do_epub: bool = True, do_pdf: bool = True) -> boo
     save_catalog(catalog)
     ok(f"Catalog: {len(catalog)} books")
 
-    for cfg_path in [dest / "config.json", BOOK_SOURCE / book_id / "config.json"]:
-        if cfg_path.exists():
-            try:
-                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                cfg["published"]      = True
-                cfg["published_date"] = str(date.today())
-                cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+    cfg_path = BOOK_SOURCE / book_id / "config.json"
+    if cfg_path.exists():
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            cfg["published"]      = True
+            cfg["published_date"] = str(date.today())
+            cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     return True
 
@@ -348,7 +335,7 @@ def build_index(catalog: list[dict]) -> None:
     for entry in catalog:
         if not entry.get("chapter_count"):
             bid = entry.get("id", "")
-            md_path = BOOK_DEST / bid / "book.md"
+            md_path = BOOK_SOURCE / bid / "book.md"
             if md_path.exists():
                 try:
                     entry["chapter_count"] = len(_gen.md_to_chapters(md_path))
@@ -886,12 +873,11 @@ def do_build() -> bool:
                 continue
             if cfg.get("published"):
                 book_id = d.name
-                dest    = BOOK_DEST / book_id
-                if dest.exists():
+                if (d / "book.md").exists():
                     publish_book(book_id)
                     published_any = True
                 else:
-                    info(f"Skipping {book_id} — not generated yet (run: npm run generate -- --input {book_id})")
+                    info(f"Skipping {book_id} — not generated yet (run: python generate.py {book_id})")
         if not published_any:
             info("No published books found in books-source/")
     else:
@@ -949,10 +935,10 @@ def main() -> None:
         sys.exit(0)
 
     if args.all:
-        if not BOOK_DEST.exists():
-            err(f"books-dest/ not found — run: python generate.py --all first"); sys.exit(1)
+        if not BOOK_SOURCE.exists():
+            err(f"books-source/ not found"); sys.exit(1)
         any_done = False
-        for d in sorted(BOOK_DEST.iterdir()):
+        for d in sorted(BOOK_SOURCE.iterdir()):
             if not d.is_dir(): continue
             if not (d / "book.md").exists(): continue
             print()
@@ -964,7 +950,7 @@ def main() -> None:
             step("Rebuilding index.html")
             build_index(catalog)
         else:
-            info("No generated books found in books-dest/")
+            info("No generated books found in books-source/")
             info("Run: python generate.py --all")
         sys.exit(0)
 
@@ -990,7 +976,7 @@ def main() -> None:
         step("Rebuilding index.html")
         build_index(catalog)
         print()
-        ok(f"Done → {PUBLIC_DIR}/{book_id}.html")
+        ok(f"Done → {PUBLIC_DIR}/{book_id}/index.html")
     print()
     sys.exit(0 if ok_result else 1)
 

@@ -6,8 +6,8 @@ Pipeline position:
   generate.py  →  [generate-tts.py]  →  analyze-tts.py  →  publish.py
 
 Two-stage workflow:
-  Stage 1 (transcribe): MP3s → raw Whisper words → tts-transcript-{lang}.json
-  Stage 2 (align):      tts-transcript-{lang}.json + book.md → tts-audio-{lang}.json
+  Stage 1 (transcribe): audio/*.mp3 → raw Whisper words → tts-transcript-{lang}.json
+  Stage 2 (align):      tts-transcript-{lang}.json + book.md → tts-transcript-align-{lang}.json
 
 Usage:
   python analyze-tts.py homer-odyseja                  # both stages (default)
@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).resolve().parent
-BOOK_DEST   = PROJECT_DIR / "books-dest"
+BOOK_SOURCE = PROJECT_DIR / "books-source"
 
 # ── Import shared helpers from generate.py ────────────────────────────────────
 sys.path.insert(0, str(PROJECT_DIR))
@@ -337,49 +337,44 @@ def build_full_ref_words(chapters: list[dict], lang: str) -> list[dict]:
     return all_words
 
 
-def scan_audio_groups(dest: Path, book_id: str, lang: str = "pl") -> dict[str, list[Path]]:
+def scan_audio_groups(book_dir: Path, lang: str = "pl") -> dict[str, list[Path]]:
     """
-    Scan dest/ for MP3 files and group by chapter.
+    Build chapter→MP3 groups from tts-audio-{lang}.json (written by generate.py).
 
-    Priority:
-    1. Per-chapter files — names contain ch{N} (e.g. *-ch1-*.mp3)
-                           → {ch1: [...], ch2: [...], …}
-    2. tts-audio-{lang}.json — existing chapter→audio mapping produced by generate.py
-                           → {ch0: [...], ch1: [...], …} with known chapter_id mapping
-    3. Whole-book fallback — all MP3s in a single group ch0
+    Returns {chapter_id: [Path, ...]} mapping, where paths resolve into book_dir.
+    Falls back to scanning book_dir/audio/ for ch{NN}-part*.mp3 files.
     """
     groups: dict[str, list[Path]] = {}
-    for mp3 in sorted(dest.glob("*.mp3")):
-        m = re.search(r'(?:^|-)ch(\d+)', mp3.stem)
-        if m:
-            key = f"ch{m.group(1)}"
-            groups.setdefault(key, []).append(mp3)
-    if groups:
-        return dict(sorted(groups.items(), key=lambda x: int(x[0][2:])))
 
-    # Try tts-audio-{lang}.json — it maps chapter_id → audio files
-    audio_json = dest / f"tts-audio-{lang}.json"
+    # Primary: read tts-audio-{lang}.json (generate.py writes audio paths relative to book_dir)
+    audio_json = book_dir / f"tts-audio-{lang}.json"
     if audio_json.exists():
         try:
             tts_map = json.loads(audio_json.read_text(encoding="utf-8"))
-            for i, (_ch_id, entry) in enumerate(tts_map.items()):
+            for ch_id, entry in tts_map.items():
                 audio = entry.get("audio", [])
                 if isinstance(audio, str):
                     audio = [audio]
-                paths = [dest / f for f in audio if (dest / f).exists()]
+                paths = [book_dir / f for f in audio if (book_dir / f).exists()]
                 if paths:
-                    groups[f"ch{i}"] = sorted(paths)
+                    groups[ch_id] = sorted(paths)
             if groups:
-                info(f"Groups from tts-audio-{lang}.json: {len(groups)} chapters")
-                return dict(sorted(groups.items(), key=lambda x: int(x[0][2:])))
+                return groups
         except Exception as e:
             warn(f"Could not read tts-audio-{lang}.json: {e}")
 
-    # Whole-book fallback — treat all MP3s as a single group
-    all_mp3 = sorted(dest.glob("*.mp3"))
-    if all_mp3:
-        info(f"No ch{{N}} files — treating {len(all_mp3)} MP3(s) as whole-book group (ch0)")
-        return {"ch0": all_mp3}
+    # Fallback: scan audio/ subdir for ch{NN}-part*.mp3
+    audio_dir = book_dir / "audio"
+    if audio_dir.is_dir():
+        for mp3 in sorted(audio_dir.glob("*.mp3")):
+            m = re.match(r'^(ch\d+)-part\d+\.mp3$', mp3.name)
+            if m:
+                key = m.group(1)  # e.g. "ch01"
+                groups.setdefault(key, []).append(mp3)
+        if groups:
+            info(f"Groups from audio/ scan: {len(groups)} chapters")
+            return dict(sorted(groups.items(), key=lambda x: int(re.search(r'\d+', x[0]).group())))
+
     return {}
 
 
@@ -616,18 +611,13 @@ def alignment_stats(ref_words: list[dict], timing: list[dict],
             f"/ whisper {len(whisper_words)} words  ref {len(ref_words)} words")
 
 # ── Analyze one chapter ────────────────────────────────────────────────────────
-def get_chapter_duration(entry: dict, dest: Path) -> float:
+def get_chapter_duration(mp3_files: list[Path]) -> float:
     """Return total audio duration of a chapter (sum of all parts)."""
-    audio = entry.get("audio")
-    if not audio:
-        return 0.0
-    files = [dest / audio] if isinstance(audio, str) else [dest / f for f in audio]
-    return sum(get_mp3_duration(f) for f in files if f.exists())
+    return sum(get_mp3_duration(f) for f in mp3_files if f.exists())
 
 
 def transcribe_chapter(
-    entry: dict,
-    dest: Path,
+    mp3_files: list[Path],
     model: object,
     lang: str,
     live: LiveProgress | None = None,
@@ -636,10 +626,6 @@ def transcribe_chapter(
     Stage 1: transcribe MP3 files for one chapter using Whisper.
     Returns list of {word, start, end} dicts or None on failure.
     """
-    audio = entry.get("audio")
-    if not audio:
-        return None
-    mp3_files = [dest / audio] if isinstance(audio, str) else [dest / f for f in audio]
     missing = [f for f in mp3_files if not f.exists()]
     if missing:
         err(f"MP3 not found: {', '.join(f.name for f in missing)}")
@@ -671,8 +657,7 @@ def align_chapter(
 
 def analyze_chapter(
     chapter: dict,
-    entry: dict,
-    dest: Path,
+    mp3_files: list[Path],
     model: object,
     lang: str,
     live: LiveProgress | None = None,
@@ -683,23 +668,23 @@ def analyze_chapter(
     Returns (timing, stats) or None on failure.
     """
     if whisper_words is None:
-        whisper_words = transcribe_chapter(entry, dest, model, lang, live)
+        whisper_words = transcribe_chapter(mp3_files, model, lang, live)
         if whisper_words is None:
             return None
     return align_chapter(chapter, whisper_words, lang)
 
 # ── List chapters ──────────────────────────────────────────────────────────────
 def list_chapters(book_id: str, lang: str) -> None:
-    dest = BOOK_DEST / book_id
-    tts_path    = dest / f"tts-audio-{lang}.json"
-    tr_path     = dest / f"tts-transcript-{lang}.json"
-    book_md     = dest / "book.md"
+    book_dir = BOOK_SOURCE / book_id
+    tts_path = book_dir / f"tts-audio-{lang}.json"
+    tr_path  = book_dir / f"tts-transcript-{lang}.json"
+    book_md  = book_dir / "book.md"
 
     if not book_md.exists():
-        err(f"books-dest/{book_id}/book.md not found — run generate.py first")
+        err(f"books-source/{book_id}/book.md not found — run generate.py first")
         return
     if not tts_path.exists():
-        err(f"books-dest/{book_id}/tts-audio-{lang}.json not found")
+        err(f"books-source/{book_id}/tts-audio-{lang}.json not found — run generate.py first")
         return
 
     chapters = md_to_chapters(book_md)
@@ -712,35 +697,30 @@ def list_chapters(book_id: str, lang: str) -> None:
             pass
 
     print(f"\n  {bold(gold(book_id))}  ·  {lang.upper()}  ·  {len(chapters)} chapters\n")
-    print(f"  {'#':>3}  {'chapter id':<40}  {'timing':<26}  transcript")
+    print(f"  {'#':>3}  {'chapter id':<40}  {'audio':<26}  transcript")
     print(f"  {'-'*3}  {'-'*40}  {'-'*26}  ----------")
     for i, ch in enumerate(chapters):
-        ch_id   = ch.get("id", f"ch{i+1}")
-        entry   = tts_map.get(ch_id, {})
-        audio   = entry.get("audio")
-        timing  = entry.get("timing")
-        tr_entry = tr_map.get(ch_id, {})
+        ch_id    = ch.get("id", f"ch{i+1}")
+        ch_key   = f"ch{i+1:02d}"
+        entry    = tts_map.get(ch_key, tts_map.get(ch_id, {}))   # ch01 key first, fall back to id
+        audio    = entry.get("audio")
+        tr_entry = tr_map.get(ch_key, tr_map.get(ch_id, {}))
         tr_words = tr_entry.get("words")
 
         if not audio:
-            t_status = gray("no audio")
-        elif timing:
-            t_status = green(f"✓ {len(timing)} words")
+            a_status = gray("no audio")
         else:
-            t_status = yellow("· no timing")
+            n_parts = len(audio) if isinstance(audio, list) else 1
+            a_status = green(f"✓ {n_parts} part(s)")
 
         if tr_words:
             tr_status = green(f"✓ {len(tr_words)} words")
         elif audio:
-            tr_status = yellow("· not saved")
+            tr_status = yellow("· not transcribed")
         else:
             tr_status = gray("—")
 
-        mp3_label = ""
-        if audio:
-            mp3_label = gray(f"  [{len(audio) if isinstance(audio, list) else 1} mp3]")
-
-        print(f"  {dim(str(i+1).rjust(3))}  {ch_id:<40}  {t_status:<35}  {tr_status}{mp3_label}")
+        print(f"  {dim(str(i+1).rjust(3))}  {ch_key:<6}  {ch_id:<34}  {a_status:<35}  {tr_status}")
     print()
     if tr_path.exists():
         info(f"Transcript: {tr_path.relative_to(PROJECT_DIR)}")
@@ -758,18 +738,18 @@ def analyze_book(
     verbose: bool = False,
     stage: str = "both",   # "transcribe" | "align" | "both"
 ) -> bool:
-    dest = BOOK_DEST / book_id
-    if not dest.exists():
-        err(f"books-dest/{book_id}/ not found — run: python generate.py {book_id}")
+    book_dir = BOOK_SOURCE / book_id
+    if not book_dir.exists():
+        err(f"books-source/{book_id}/ not found — run: python generate.py {book_id}")
         return False
 
-    book_md    = dest / "book.md"
-    tts_path   = dest / f"tts-audio-{lang}.json"
-    tr_path    = dest / f"tts-transcript-{lang}.json"
-    align_path = dest / f"tts-transcript-align-{lang}.json"
+    book_md    = book_dir / "book.md"
+    tts_path   = book_dir / f"tts-audio-{lang}.json"
+    tr_path    = book_dir / f"tts-transcript-{lang}.json"
+    align_path = book_dir / f"tts-transcript-align-{lang}.json"
 
     if not book_md.exists():
-        err(f"book.md missing in books-dest/{book_id}/ — run generate.py first")
+        err(f"book.md missing in books-source/{book_id}/ — run generate.py first")
         return False
 
     do_transcribe = stage in ("transcribe", "both")
@@ -781,53 +761,33 @@ def analyze_book(
     # STAGE 1 — TRANSCRIBE: scan MP3 files by filename, build transcript
     # ══════════════════════════════════════════════════════════════════════════
     if do_transcribe:
-        # Scan directory for audio groups (ch{N} filenames or tts-audio-{lang}.json)
-        audio_groups = scan_audio_groups(dest, book_id, lang)
+        # Scan for audio groups via tts-audio-{lang}.json (written by generate.py)
+        # groups are keyed by chapter_id (e.g. "ksiega-pierwsza")
+        audio_groups = scan_audio_groups(book_dir, lang)
         if not audio_groups:
-            err(f"No MP3 files found in books-dest/{book_id}/ — run generate.py first")
+            err(f"No audio found for books-source/{book_id}/ — run generate.py first")
             return False
 
-        # Build chkey→chapter_id: reverse-lookup each group's audio files in tts-audio-{lang}.json.
-        # This works for any ch-key format (ch1, ch01, ch001, …) because we match by file content.
+        # tts-audio-{lang}.json is keyed by ch{NN} (e.g. "ch01", "ch02").
+        # Build bridge from ch-key → semantic chapter_id (from book.md order).
         chkey_to_chid: dict[str, str] = {}
-        audio_json = dest / f"tts-audio-{lang}.json"
-        if audio_json.exists():
-            try:
-                _tts = json.loads(audio_json.read_text(encoding="utf-8"))
-                # file → chapter_id reverse map
-                file_to_chid: dict[str, str] = {}
-                for _ch_id, _entry in _tts.items():
-                    _audio = _entry.get("audio", [])
-                    if isinstance(_audio, str):
-                        _audio = [_audio]
-                    for _f in _audio:
-                        file_to_chid[_f] = _ch_id
-                # map each group key to the chapter_id of its first audio file
-                for ch_key, mp3_list in audio_groups.items():
-                    for mp3 in mp3_list:
-                        if mp3.name in file_to_chid:
-                            chkey_to_chid[ch_key] = file_to_chid[mp3.name]
-                            break
-            except Exception:
-                pass
+        for i, ch in enumerate(chapters):
+            ck = f"ch{i+1:02d}"
+            if ck in audio_groups:
+                chkey_to_chid[ck] = ch.get("id", ck)
 
-        # Load existing transcript (ch-indexed only — discard old chapter-slug keys)
+        # Load existing transcript (keyed by chapter_id from tts-audio-*.json)
         tr_map: dict[str, dict] = {}
         if tr_path.exists():
             try:
-                raw = json.loads(tr_path.read_text(encoding="utf-8"))
-                tr_map = {k: v for k, v in raw.items() if re.match(r"ch\d+$", k)}
-                old_skipped = len(raw) - len(tr_map)
-                if old_skipped:
-                    info(f"Discarded {old_skipped} non-ch{{N}} entries from old transcript")
+                tr_map = json.loads(tr_path.read_text(encoding="utf-8"))
             except Exception:
                 warn(f"Could not parse {tr_path.name} — starting fresh")
 
         # Filter groups to process
         if chapters_spec:
-            # chapters_spec here refers to ch-group numbers: "1-3" → ch1, ch2, ch3
-            nums   = parse_chapters_spec(chapters_spec, list(audio_groups.keys()))
-            groups = {k: v for k, v in audio_groups.items() if k in set(nums)}
+            target_ids = parse_chapters_spec(chapters_spec, list(audio_groups.keys()))
+            groups = {k: v for k, v in audio_groups.items() if k in set(target_ids)}
         else:
             groups = audio_groups
 
@@ -836,7 +796,7 @@ def analyze_book(
                               if not tr_map.get(k, {}).get("words")}
             skipped_n = len(groups) - len(pending_groups)
             if skipped_n:
-                info(f"Skipping {skipped_n} already-transcribed groups (use --replace to redo)")
+                info(f"Skipping {skipped_n} already-transcribed chapters (use --replace to redo)")
         else:
             pending_groups = groups
 
@@ -862,35 +822,36 @@ def analyze_book(
             ok("Model ready")
 
             total_audio = sum(
-                sum(get_mp3_duration(f) for f in files)
+                get_chapter_duration(files)
                 for files in pending_groups.values()
             )
-            step(f"Transcribing {len(pending_groups)} audio groups  ·  lang={lang}"
+            step(f"Transcribing {len(pending_groups)} chapters  ·  lang={lang}"
                  + (f"  ·  {_fmt_dur(total_audio)} audio" if total_audio > 0 else ""))
             live = LiveProgress(len(pending_groups), total_audio)
             done_t, failed_t = 0, 0
 
-            for i, (ch_key, mp3_files) in enumerate(pending_groups.items()):
+            for i, (ch_id, mp3_files) in enumerate(pending_groups.items()):
                 if _stop:
                     warn("Stopped by user — transcript saved")
                     break
-                ch_dur = sum(get_mp3_duration(f) for f in mp3_files)
-                live.begin_chapter(i + 1, ch_key, ch_dur)
+                ch_dur = get_chapter_duration(mp3_files)
+                live.begin_chapter(i + 1, ch_id, ch_dur)
                 try:
                     cb    = live.update
                     words = transcribe_parts(mp3_files, model, language=lang, on_progress=cb)
                     if not words:
-                        warn(f"Whisper returned no words for {ch_key}")
+                        warn(f"Whisper returned no words for {ch_id}")
                         live.fail_chapter(ch_dur)
                         failed_t += 1
                         continue
+                    # Store relative paths (relative to book_dir)
+                    rel_paths = [str(f.relative_to(book_dir)) for f in mp3_files]
                     entry: dict = {
-                        "audio": [f.name for f in mp3_files],
-                        "words": words,
+                        "audio":      rel_paths,
+                        "chapter_id": ch_id,
+                        "words":      words,
                     }
-                    if ch_key in chkey_to_chid:
-                        entry["chapter_id"] = chkey_to_chid[ch_key]
-                    tr_map[ch_key] = entry
+                    tr_map[ch_id] = entry
                     tr_path.write_text(
                         json.dumps(tr_map, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
@@ -898,19 +859,19 @@ def analyze_book(
                     done_t += 1
                 except Exception as e:
                     live.fail_chapter(ch_dur)
-                    err(f"Error transcribing {ch_key}: {e}")
+                    err(f"Error transcribing {ch_id}: {e}")
                     import traceback; traceback.print_exc()
                     failed_t += 1
 
             total_time = time.monotonic() - wall_start
             print()
             if done_t:
-                ok(f"{done_t}/{len(pending_groups)} groups transcribed  ·  {_fmt_secs(total_time)}")
+                ok(f"{done_t}/{len(pending_groups)} chapters transcribed  ·  {_fmt_secs(total_time)}")
             if failed_t:
-                warn(f"{failed_t} groups failed")
+                warn(f"{failed_t} chapters failed")
             ok(f"Transcript → {tr_path.relative_to(PROJECT_DIR)}")
         else:
-            ok("All audio groups already transcribed")
+            ok("All chapters already transcribed")
 
         if not do_align:
             info(f"Next: python analyze-tts.py {book_id} --stage align")
@@ -926,20 +887,22 @@ def analyze_book(
             err(f"tts-transcript-{lang}.json not found — run --stage transcribe first")
             return False
         try:
-            raw_tr = json.loads(tr_path.read_text(encoding="utf-8"))
-            # Accept only ch{N}-keyed entries; discard old chapter-slug keys
-            tr_map = {k: v for k, v in raw_tr.items() if re.match(r"ch\d+$", k)}
-            stale = len(raw_tr) - len(tr_map)
-            if stale:
-                info(f"Ignoring {stale} non-ch{{N}} entries in transcript (old format)")
+            tr_map = json.loads(tr_path.read_text(encoding="utf-8"))
         except Exception as e:
             err(f"Cannot parse tts-transcript-{lang}.json: {e}"); return False
 
-        # Sort ch-keys by number (ch0 < ch1 < ch2 …)
-        ch_keys = sorted(
-            (k for k in tr_map if tr_map[k].get("words")),
-            key=lambda k: int(re.search(r"\d+", k).group()),  # safe: re.match above guarantees digits
-        )
+        # Chapter keys are chapter_ids (stable slugified titles from book.md)
+        # Order them according to their position in tts-audio-{lang}.json
+        ch_id_order: list[str] = []
+        if tts_path.exists():
+            try:
+                tts_order = json.loads(tts_path.read_text(encoding="utf-8"))
+                ch_id_order = [k for k in tts_order if k in tr_map and tr_map[k].get("words")]
+            except Exception:
+                pass
+        if not ch_id_order:
+            ch_id_order = [k for k in tr_map if tr_map[k].get("words")]
+        ch_keys = ch_id_order
         if not ch_keys:
             err("No transcribed groups in transcript file — run --stage transcribe first")
             return False
@@ -1062,8 +1025,9 @@ def analyze_book(
         # In whole-book mode:  all chapters with an audio assignment are included
         #   (timing is still only for covered chapters; seek_to for any matched).
         align_out: dict[str, dict] = {}
-        for ch in chapters:
-            ch_id = ch.get("id", "")
+        for i, ch in enumerate(chapters):
+            ch_id  = ch.get("id", "")
+            ch_key = f"ch{i+1:02d}"
             audio   = chapter_to_audio.get(ch_id)
             if not audio:
                 continue  # no audio → skip entirely
@@ -1080,11 +1044,11 @@ def analyze_book(
                 out_entry["timing"] = timing
             if seek_to is not None:
                 out_entry["seek_to"] = seek_to
-            align_out[ch_id] = out_entry
+            align_out[ch_key] = out_entry  # keyed by ch{NN} for consistency with tts-audio-*.json
         align_path.write_text(
             json.dumps(align_out, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        ok(f"Align map  → {align_path.relative_to(PROJECT_DIR)}")
+        ok(f"Align  → {align_path.relative_to(PROJECT_DIR)}")
 
         # tts-audio-{lang}.json is owned exclusively by generate.py and is never
         # modified here.  All analysis output lives in tts-transcript-align-{lang}.json.
@@ -1104,7 +1068,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("Install deps:")[0].strip(),
     )
-    p.add_argument("book_id", nargs="?", help="Book ID (directory name in books-dest/)")
+    p.add_argument("book_id", nargs="?", help="Book ID (directory name in books-source/)")
     p.add_argument("--lang",     default="pl",     metavar="LANG",
                    help="Language code: pl, en  (default: pl)")
     p.add_argument("--stage",    default="both",   metavar="STAGE",
@@ -1143,10 +1107,10 @@ def main() -> None:
 
     if not args.book_id:
         # List all books with their status
-        if not BOOK_DEST.exists():
-            err(f"books-dest/ not found: {BOOK_DEST}"); sys.exit(1)
+        if not BOOK_SOURCE.exists():
+            err(f"books-source/ not found: {BOOK_SOURCE}"); sys.exit(1)
         print(f"\n  {bold(gold('Atlas Books — analyze-tts status'))}\n")
-        for d in sorted(BOOK_DEST.iterdir()):
+        for d in sorted(BOOK_SOURCE.iterdir()):
             if not d.is_dir(): continue
             tts = d / f"tts-audio-{args.lang}.json"
             if not tts.exists():
@@ -1156,16 +1120,18 @@ def main() -> None:
                 data = json.loads(tts.read_text(encoding="utf-8"))
             except Exception:
                 print(f"  {dim('○')} {d.name}  {red('invalid JSON')}"); continue
-            with_audio   = sum(1 for v in data.values() if isinstance(v, dict) and v.get("audio"))
-            with_timing  = sum(1 for v in data.values() if isinstance(v, dict) and v.get("timing"))
+            with_audio  = sum(1 for v in data.values() if isinstance(v, dict) and v.get("audio"))
+            align_path  = d / f"tts-transcript-align-{args.lang}.json"
             if with_audio == 0:
                 status = gray("no audio")
-            elif with_timing == with_audio:
-                status = green(f"✓ all timing  ({with_timing}/{with_audio})")
-            elif with_timing > 0:
-                status = yellow(f"· partial  ({with_timing}/{with_audio} chapters)")
+            elif align_path.exists():
+                status = green(f"✓ aligned  ({with_audio} ch)")
             else:
-                status = yellow(f"· audio only  ({with_audio} ch, no timing)")
+                tr_path = d / f"tts-transcript-{args.lang}.json"
+                if tr_path.exists():
+                    status = yellow(f"· transcribed, not aligned  ({with_audio} ch)")
+                else:
+                    status = yellow(f"· audio only  ({with_audio} ch, not transcribed)")
             print(f"  {gold('►')} {bold(d.name):<45}  {status}")
         print()
         info(f"Run: python analyze-tts.py <book-id>")
